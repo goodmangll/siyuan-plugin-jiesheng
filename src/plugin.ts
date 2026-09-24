@@ -9,10 +9,11 @@ import {
     appendBlock, getBlockKramdown, getTaskAttrs, resolveTaskBlock, setBlockAttrs, setTransport,
     updateBlockMarkdown,
 } from "./api/blocks";
-import { cursorBlockId, type ProtyleLike } from "./api/dom";
+import { cursorBlockId, taskBlockIdFromElement, type ProtyleLike } from "./api/dom";
 import type { KernelResponse } from "./api/blocks";
 import { COMMANDS, type TaskCommandDeps } from "./commands";
 import { mountTaskPanel, type TaskPanelHandle } from "./ui/mountPanel";
+import { buildBlockMenuItems, type BlockMenuDeps } from "./ui/blockMenu";
 import { isDone, setTaskDone } from "./model/task";
 
 
@@ -59,6 +60,34 @@ export default class TaskFlow extends Plugin {
             this.panel?.refresh();
         });
 
+        // 块标菜单 →「任务 ▸」子菜单
+        // ⚠️ 必须同步 addItem：事件返回后思源立刻渲染菜单，异步加的项不会出现。
+        this.eventBus.on("click-blockicon", (event) => {
+            try {
+                const { menu, blockElements } = event.detail;
+                const taskId = taskBlockIdFromElement(blockElements?.[0] ?? null);
+                const items = buildBlockMenuItems(taskId, this.buildBlockMenuDeps());
+                if (!items.length) {
+                    return;
+                }
+                menu.addSeparator();
+                menu.addItem({
+                    icon: "iconTaskFlow",
+                    label: "任务",
+                    type: "submenu",
+                    submenu: items.map((it) => ({
+                        icon: it.icon,
+                        label: it.label,
+                        click: () => {
+                            void it.click();
+                        },
+                    })),
+                });
+            } catch {
+                /* 挂菜单失败不能影响思源的块标菜单本身 */
+            }
+        });
+
         try {
             this.addDock({
                 id: DOCK_TYPE,
@@ -86,6 +115,21 @@ export default class TaskFlow extends Plugin {
     onunload(): void {
         this.panel?.unmount();
         this.panel = null;
+    }
+
+    /** 块标菜单宿主 */
+    private buildBlockMenuDeps(): BlockMenuDeps {
+        return {
+            now: () => new Date(),
+            readAttrs: (id: string) => getTaskAttrs(id),
+            writeAttrs: (id: string, patch: Record<string, string>) => setBlockAttrs(id, patch),
+            openPanel: (id: string) => {
+                this.panel?.refresh();
+                this.openDock();
+                void id;
+            },
+            onError: (m: string) => showMessage("任务流：" + m, 4000, "error"),
+        };
     }
 
     /** 面板宿主：全部通过 api 层，面板本身不碰思源 API */
