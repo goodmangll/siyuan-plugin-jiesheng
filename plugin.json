@@ -1,0 +1,17 @@
+{
+  "name": "siyuan-plugin-task-flow",
+  "author": "goodmangll",
+  "url": "https://github.com/goodmangll/siyuan-plugin-task-flow",
+  "version": "0.1.0",
+  "minAppVersion": "3.7.0",
+  "backends": ["windows", "linux", "darwin", "docker"],
+  "frontends": ["desktop", "desktop-window", "browser-desktop"],
+  "disabledInPublish": false,
+  "displayName": { "default": "Task Flow", "zh-CN": "任务流" },
+  "description": {
+    "default": "Quick-set task due/priority/reminder/repeat via shortcuts and a Dock panel.",
+    "zh-CN": "用快捷键和侧栏面板快速给任务设置日期 / 优先级 / 提醒 / 重复。"
+  },
+  "readme": { "default": "README.md", "zh-CN": "README.zh_CN.md" },
+  "keywords": ["task", "todo", "task management", "任务", "待办"]
+}
