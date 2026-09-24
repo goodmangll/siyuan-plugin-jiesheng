@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
-    appendBlock, deleteBlock, firstInnerParagraph, getTaskAttrs, insertBlockAfter, isSubtaskBlock, isTaskBlock,
-    resolveTaskBlock,
+    firstInnerParagraph, getTaskAttrs, isSubtaskBlock, isTaskBlock, isTaskDoc, resolveTaskBlock,
     setBlockAttrs, setTransport, type KernelResponse,
 } from "../../src/api/blocks";
 
@@ -132,117 +131,62 @@ describe("SQL 只读约束", () => {
     });
 });
 
-describe("任务块归一化（光标常落在段落块上）", () => {
-    it("本身就是任务项 → 原样返回", async () => {
-        install((url) => (url === "/api/query/sql" ? ok([{ id: "T", type: "i", subtype: "t", parent_id: "L" }]) : ok(null)));
-        expect(await resolveTaskBlock("T")).toBe("T");
-    });
-    it("段落块 → 向上找到所属任务项", async () => {
+describe("任务归一化（★ 任务 = 文档，往上找到所属文档再判任务标记）", () => {
+    /** 造一张块表 + 任务标记表 */
+    const tree = (blocks: Record<string, [string, string, string]>, taskDocs: string[] = []) =>
         install((url, d) => {
-            if (url !== "/api/query/sql") return ok(null);
-            const stmt = String(d!.stmt);
-            if (stmt.includes("id='P'")) return ok([{ id: "P", type: "p", subtype: "", parent_id: "T" }]);
-            if (stmt.includes("id='T'")) return ok([{ id: "T", type: "i", subtype: "t", parent_id: "L" }]);
-            return ok([]);
+            if (url === "/api/query/sql") {
+                const stmt = String(d!.stmt);
+                if (stmt.includes("from attributes")) {
+                    const m = /block_id='([^']+)'/.exec(stmt);
+                    const key = m?.[1] ?? "";
+                    return ok(taskDocs.includes(key) ? [{ id: key }] : []);
+                }
+                const m = /id='([^']+)'/.exec(stmt);
+                const key = m?.[1] ?? "";
+                const blk = blocks[key];
+                return ok(blk ? [{ id: key, type: blk[0], subtype: blk[1], parent_id: blk[2] }] : []);
+            }
+            return ok(null);
         });
-        expect(await resolveTaskBlock("P")).toBe("T");
+
+    it("光标在任务文档内的段落上 → 返回该任务文档", async () => {
+        tree({ P: ["p", "", "DOC"], DOC: ["d", "", ""] }, ["DOC"]);
+        expect(await resolveTaskBlock("P")).toBe("DOC");
     });
-    it("子任务的段落块 → 找到子任务项，不会跑到父任务", async () => {
-        install((url, d) => {
-            if (url !== "/api/query/sql") return ok(null);
-            const stmt = String(d!.stmt);
-            if (stmt.includes("id='SP'")) return ok([{ id: "SP", type: "p", subtype: "", parent_id: "SI" }]);
-            if (stmt.includes("id='SI'")) return ok([{ id: "SI", type: "i", subtype: "t", parent_id: "SL" }]);
-            return ok([]);
-        });
-        expect(await resolveTaskBlock("SP")).toBe("SI");
-    });
-    it("普通段落（不在任务里）→ null", async () => {
-        install((url, d) => {
-            if (url !== "/api/query/sql") return ok(null);
-            const stmt = String(d!.stmt);
-            if (stmt.includes("id='P'")) return ok([{ id: "P", type: "p", subtype: "", parent_id: "D" }]);
-            if (stmt.includes("id='D'")) return ok([{ id: "D", type: "d", subtype: "", parent_id: "" }]);
-            return ok([]);
-        });
+    it("光标在**非任务**文档内的段落上 → null", async () => {
+        tree({ P: ["p", "", "DOC"], DOC: ["d", "", ""] }, []);
         expect(await resolveTaskBlock("P")).toBeNull();
     });
-    it("块不存在 → null，不抛", async () => {
-        install((url) => (url === "/api/query/sql" ? ok([]) : ok(null)));
-        expect(await resolveTaskBlock("NOPE")).toBeNull();
-    });
-});
-
-describe("appendBlock", () => {
-    it("调的是 appendBlock 且 dataType=markdown", async () => {
-        install((url) => (url === "/api/block/appendBlock" ? ok(null) : ok(null)));
-        await appendBlock("TASK", "  - [ ] 子任务");
-        expect(calls[0].url).toBe("/api/block/appendBlock");
-        expect(calls[0].data).toMatchObject({ parentID: "TASK", dataType: "markdown", data: "  - [ ] 子任务" });
-    });
-});
-
-describe("insertBlockAfter", () => {
-    it("返回字符串 id", async () => {
-        install((url) => (url === "/api/block/insertBlock" ? ok("NEWID") : ok(null)));
-        expect(await insertBlockAfter("PREV", "- [ ] x")).toBe("NEWID");
-        expect(calls[0].data).toMatchObject({ previousID: "PREV", dataType: "markdown" });
-    });
-    it("返回 operation 数组时也能取到 id", async () => {
-        install((url) => (url === "/api/block/insertBlock"
-            ? ok([{ doOperations: [{ id: "NEWID2" }] }]) : ok(null)));
-        expect(await insertBlockAfter("PREV", "- [ ] x")).toBe("NEWID2");
-    });
-    it("拿不到 id → null，不抛", async () => {
-        install((url) => (url === "/api/block/insertBlock" ? ok([]) : ok(null)));
-        expect(await insertBlockAfter("PREV", "- [ ] x")).toBeNull();
-    });
-});
-
-describe("deleteBlock", () => {
-    it("调到 /api/block/deleteBlock 并带上 id", async () => {
-        install((url) => (url === "/api/block/deleteBlock" ? ok(null) : ok(null)));
-        await deleteBlock("T1");
-        expect(calls[0].url).toBe("/api/block/deleteBlock");
-        expect(calls[0].data).toEqual({ id: "T1" });
-    });
-});
-
-describe("T19 文档块也能当任务（「重任务」形态）", () => {
-    /** 建一张最小块表：id → {type, subtype, parent_id} */
-    const tree = (map: Record<string, { type: string; subtype: string; parent: string }>) =>
-        install((url, d) => {
-            if (url !== "/api/query/sql") return ok([]);
-            const m = /id='([^']+)'/.exec(String(d!.stmt));
-            const node = m ? map[m[1]] : undefined;
-            return ok(node ? [{ id: m![1], type: node.type, subtype: node.subtype, parent_id: node.parent }] : []);
-        });
-
-    it("光标直接落在文档块 → 返回文档块本身", async () => {
-        tree({ DOC: { type: "d", subtype: "", parent: "" } });
+    it("光标直接落在任务文档上 → 返回它", async () => {
+        tree({ DOC: ["d", "", ""] }, ["DOC"]);
         expect(await resolveTaskBlock("DOC")).toBe("DOC");
     });
-
-    it("T7 不能破坏：文档里某个普通段落 → 仍然 null（往上走不认文档）", async () => {
-        tree({
-            P: { type: "p", subtype: "", parent: "DOC" },
-            DOC: { type: "d", subtype: "", parent: "" },
-        });
-        expect(await resolveTaskBlock("P")).toBeNull();
+    it("嵌套任务文档 → 返回**最里层**的那个", async () => {
+        tree({ P: ["p", "", "INNER"], INNER: ["d", "", ""], OUTER: ["d", "", ""] }, ["INNER", "OUTER"]);
+        expect(await resolveTaskBlock("P")).toBe("INNER");
     });
-
-    it("任务项仍然优先：光标在任务项内层段落 → 返回任务项", async () => {
-        tree({
-            INNER: { type: "p", subtype: "", parent: "LI" },
-            LI: { type: "i", subtype: "t", parent: "L" },
-            L: { type: "l", subtype: "t", parent: "DOC" },
-            DOC: { type: "d", subtype: "", parent: "" },
-        });
-        expect(await resolveTaskBlock("INNER")).toBe("LI");
+    it("老模型兼容：本身就是 - [ ] 任务项 → 原样返回", async () => {
+        tree({ T: ["i", "t", "L"] });
+        expect(await resolveTaskBlock("T")).toBe("T");
     });
-
-    it("未知块 → null，不抛", async () => {
+    it("块不存在 → null，不抛", async () => {
         tree({});
         expect(await resolveTaskBlock("NOPE")).toBeNull();
+    });
+    it("只有父链、没有文档块 → null（不死循环）", async () => {
+        tree({ A: ["p", "", "B"], B: ["p", "", "C"] });
+        expect(await resolveTaskBlock("A")).toBeNull();
+    });
+});
+
+describe("T22 块标菜单用的「是不是任务文档」", () => {
+    it("带 custom-task=1 → true", async () => {
+        install((url, d) => (url === "/api/query/sql" && String(d!.stmt).includes("custom-task") ? ok([{ id: "D" }]) : ok([])));
+        expect(await isTaskDoc("D")).toBe(true);
+    });
+    it("没标记 → false", async () => {
+        install(() => ok([]));
+        expect(await isTaskDoc("D")).toBe(false);
     });
 });

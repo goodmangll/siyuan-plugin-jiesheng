@@ -151,7 +151,18 @@ export async function removeDocByID(id: string): Promise<void> {
  * 结构是 `i(任务) > [ p(正文) , l > i(子任务) > p ]`，所以从光标处最多向上走两层。
  * 子任务向上找到的是它自己的 `i`，不会跑到父任务 —— 因为它的直接父级就是自己的 `i`。
  */
-export async function resolveTaskBlock(id: string, maxUp = 3): Promise<string | null> {
+/**
+ * 归一化：把「光标所在的块」变成「它所属的任务文档」。
+ *
+ * ★ 任务 = 文档。所以这里的语义是：**往上找到所属的文档，再判断那个文档是不是任务**
+ *   （带 `custom-task="1"` 标记）。不是任务文档 → 返回 null。
+ *
+ * 为什么必须往上找：光标几乎不会停在文档块本身上，而是停在它内部的段落/标题上。
+ * 只认起始块的话，在任务文档里写正文时按快捷键会毫无反应。
+ *
+ * `maxUp` 是防御性上限；文档树的层级再深也不会超过它，而数据异常时不至于死循环。
+ */
+export async function resolveTaskBlock(id: string, maxUp = 16): Promise<string | null> {
     interface Row { id: string; type: string; subtype: string; parent_id: string }
     let rows = await sql<Row>(`select id, type, subtype, parent_id from blocks where id='${id}' limit 1`);
     if (!rows.length) {
@@ -159,16 +170,15 @@ export async function resolveTaskBlock(id: string, maxUp = 3): Promise<string | 
     }
     let cur = rows[0];
 
-    // 光标**直接落在文档块上**时，把文档也当作任务宿主（设计 T19 的「重任务」形态）。
-    // 只认起始块本身：往上走的过程中不认文档，否则文档里的任意普通段落
-    // 都会一路走到文档块、被误判成任务（T7 要求那种情况必须无变化）。
-    if (cur.type === "d") {
+    // 起始块本身就是 `- [ ]` 任务项（老模型的块）→ 直接认，保持兼容
+    if (cur.type === "i" && cur.subtype === "t") {
         return cur.id;
     }
 
     for (let i = 0; i < maxUp; i++) {
-        if (cur.type === "i" && cur.subtype === "t") {
-            return cur.id;
+        if (cur.type === "d") {
+            // 找到所属文档了 —— 它是不是任务？
+            return (await isTaskDoc(cur.id)) ? cur.id : null;
         }
         if (!cur.parent_id) {
             return null;
@@ -179,10 +189,17 @@ export async function resolveTaskBlock(id: string, maxUp = 3): Promise<string | 
         }
         cur = rows[0];
     }
-    return cur.type === "i" && cur.subtype === "t" ? cur.id : null;
+    return null;
 }
 
-/** 在某个块下面追加内容（Dock 面板加子任务用） */
+/** 这个文档是不是「任务文档」（带 custom-task="1" 标记） */
+export async function isTaskDoc(id: string): Promise<boolean> {
+    const rows = await sql(
+        `select id from attributes where block_id='${id}' and name='custom-task' and value='1' limit 1`,
+    );
+    return rows.length > 0;
+}
+
 export async function appendBlock(parentID: string, markdown: string): Promise<void> {
     await call<unknown>("/api/block/appendBlock", { parentID, dataType: "markdown", data: markdown });
 }
@@ -211,12 +228,6 @@ export async function insertBlockAfter(previousID: string, markdown: string): Pr
 }
 
 /** 取任务标题（从 kramdown 首行解析，避免把子块文本带进来） */
-export async function getTaskTitle(id: string): Promise<string> {
-    const kr = await getBlockKramdown(id);
-    const first = kr.split("\n", 1)[0];
-    const m = /^(-\s+(?:\{:[^}]*\}\s*)?)(\[ \]|\[[xX]\])/.exec(first);
-    return (m ? first.slice(m[0].length) : first).trim();
-}
 
 /** 删除块（进思源回收站，可恢复） */
 export async function deleteBlock(id: string): Promise<void> {
@@ -280,4 +291,26 @@ export async function updateTaskBody(blockId: string, text: string): Promise<voi
 /** 删一段正文 */
 export async function deleteTaskBody(blockId: string): Promise<void> {
     await deleteBlock(blockId);
+}
+
+/**
+ * 取「任务标题」。
+ *
+ * ★ 任务 = 文档 → 标题就是**文档标题**（`blocks.content`），
+ *   **不能**去读 kramdown 首行：那会读到文档正文里的第一个块（真机踩到，
+ *   标题显示成了 `# 树任务-父`）。
+ * 老模型的 `- [ ]` 块才需要从 kramdown 首行解析。
+ */
+export async function getTaskTitle(id: string): Promise<string> {
+    const rows = await runSql<{ type: string; content: string | null }>(
+        `select type, content from blocks where id='${id}' limit 1`,
+    );
+    const row = rows[0];
+    if (row?.type === "d") {
+        return (row.content ?? "").trim();
+    }
+    const kr = await getBlockKramdown(id);
+    const first = kr.split("\n", 1)[0];
+    const m = /^(-\s+(?:\{:[^}]*\}\s*)?)(\[ \]|\[[xX]\])/.exec(first);
+    return (m ? first.slice(m[0].length) : first).trim();
 }

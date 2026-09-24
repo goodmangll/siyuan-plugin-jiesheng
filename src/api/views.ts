@@ -105,3 +105,75 @@ export function sanitizeTitle(title: string): string {
     const cleaned = (title ?? "").replace(/[\\/:*?"<>|#\n\r\t]/g, " ").trim();
     return cleaned || "未命名任务";
 }
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * 「位置即关系」：子任务 = 子文档。
+ * 父子关系由**文件树位置**承载（思源的文档树靠 hpath，parent_id 是空的 —— 实测）。
+ * 挂/摘父子 = 移动文档，用 moveDocsByID。
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/** 把任务挂到另一个任务下（= 成为它的子任务）。任何层级一步到位。 */
+export async function linkTaskUnder(taskId: string, parentId: string): Promise<void> {
+    const res = await callKernel<unknown>("/api/filetree/moveDocsByID", {
+        fromIDs: [taskId],
+        toID: parentId,
+    });
+    void res;
+}
+
+/** 把任务挂回所在笔记本的顶层（= 解除主任务） */
+export async function detachTask(taskId: string, notebook: string, rootPath = "/"): Promise<void> {
+    await callKernel<unknown>("/api/filetree/moveDocs", {
+        fromPaths: [await taskPath(taskId)],
+        toNotebook: notebook,
+        toPath: rootPath,
+    });
+}
+
+/** 取文档路径（moveDocs 按路径操作） */
+async function taskPath(id: string): Promise<string> {
+    const rows = await runSql<{ hpath: string }>(`select hpath from blocks where id='${id}' limit 1`);
+    return rows[0]?.hpath ?? "";
+}
+
+/**
+ * 在某个任务下新建子任务（= 建子文档）。
+ *
+ * 做法是「先在根目录建，再挂进去」而不是直接拼 hpath：
+ * 路径里可能有需要转义的字符，而且这样能复用已实测可用的挂载路径。
+ */
+export async function createSubTask(parentId: string, title: string): Promise<string | null> {
+    const rows = await runSql<{ box: string }>(`select box from blocks where id='${parentId}' limit 1`);
+    const notebook = rows[0]?.box;
+    if (!notebook) {
+        return null;
+    }
+    const id = await createDocWithMd(notebook, `/${sanitizeTitle(title)}`, `# ${title}\n\n`);
+    if (!id) {
+        return null;
+    }
+    await linkTaskUnder(id, parentId);
+    await setAttrsAndWait(id, { "custom-task": "1" }, "custom-task", "1");
+    return id;
+}
+
+/** 某个任务的直属子任务（= 子文档）。按路径前缀取。 */
+export async function childTasksOf(parentId: string): Promise<{ id: string; title: string }[]> {
+    const rows = await runSql<{ hpath: string }>(
+        `select hpath from blocks where id='${parentId}' limit 1`,
+    );
+    const hp = rows[0]?.hpath;
+    if (!hp) {
+        return [];
+    }
+    // hpath 前缀能框住整棵子树；再按 '/' 段数筛掉更深的层级，只留直属子
+    const depth = hp.split("/").filter(Boolean).length;
+    const children = await runSql<{ id: string; hpath: string; title: string }>(
+        `select id, hpath, content as title from blocks
+         where type='d' and hpath like '${hp}/%'
+         order by hpath`,
+    );
+    return children
+        .filter((c) => c.hpath.split("/").filter(Boolean).length === depth + 1)
+        .map((c) => ({ id: c.id, title: c.title }));
+}

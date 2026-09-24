@@ -6,11 +6,14 @@
  */
 import { Plugin, fetchSyncPost, getActiveEditor, openTab, showMessage } from "siyuan";
 import {
-    appendBlock, deleteBlock, getBlockKramdown, getTaskAttrs, getTaskTitle, insertBlockAfter,
+    deleteBlock, getBlockKramdown, getTaskAttrs, getTaskTitle, insertBlockAfter,
     resolveTaskBlock, setBlockAttrs, setTransport, updateBlockMarkdown,
 } from "./api/blocks";
 import { countSelectedBlocks } from "./api/dom";
-import { ensureTaskNotebook, sanitizeTitle, setAttrsAndWait } from "./api/views";
+import {
+    childTasksOf, createSubTask, detachTask, ensureTaskNotebook, linkTaskUnder, sanitizeTitle,
+    setAttrsAndWait,
+} from "./api/views";
 import { callKernel, createDocWithMd, runSql } from "./api/blocks";
 import { mountTab, type TabHandle } from "./views/mountTab";
 import { calendarSql, countSql, listsSql, smartListIds, sqlForView, type SmartListId } from "./views/query";
@@ -279,6 +282,34 @@ export default class TaskFlow extends Plugin {
                 await this.createTaskDoc(title, due);
             },
 
+            // ── 位置即关系：子任务 = 子文档 ──
+            childTasks: (parentId: string) => childTasksOf(parentId),
+
+            addSubTask: async (parentId: string, title: string) => {
+                await createSubTask(parentId, title);
+            },
+
+            linkToParent: async (taskId: string, parentId: string) => {
+                await linkTaskUnder(taskId, parentId);
+            },
+
+            detach: async (taskId: string) => {
+                const rows = await runSql<{ box: string }>(
+                    `select box from blocks where id='${taskId}' limit 1`,
+                );
+                const nb = rows[0]?.box;
+                if (!nb) {
+                    showMessage("任务流：找不到任务所在笔记本，无法解除", 4000, "error");
+                    return;
+                }
+                await detachTask(taskId, nb);
+            },
+
+            renameTask: async (id: string, title: string) => {
+                // 用文档重命名 API（改的是文件名，也就是 blocks.content = 任务标题）
+                await callKernel("/api/filetree/renameDocByID", { id, title });
+            },
+
             subscribe: (onChange: () => void) => {
                 // 外部改动（编辑器里改了属性）也要让视图跟上，否则看板会是旧的
                 const handler = (): void => { onChange(); };
@@ -411,7 +442,17 @@ export default class TaskFlow extends Plugin {
             currentBlockId: async () => this.pinnedTask ?? await this.resolvedTaskBlockId(),
             readAttrs: (id: string) => getTaskAttrs(id),
             writeAttrs: (id: string, patch: Record<string, string>) => setBlockAttrs(id, patch),
-            appendSubtask: async (id: string, markdown: string) => { await appendBlock(id, markdown); },
+            // 位置即关系：子任务 = 子文档
+            childTasks: (id: string) => childTasksOf(id),
+            addSubTask: async (id: string, title: string) => { await createSubTask(id, title); },
+            linkToParent: async (id: string, parentId: string) => { await linkTaskUnder(id, parentId); },
+            detach: async (id: string) => {
+                const rows = await runSql<{ box: string }>(`select box from blocks where id='${id}' limit 1`);
+                if (rows[0]?.box) await detachTask(id, rows[0].box);
+            },
+            renameTask: async (id: string, title: string) => {
+                await callKernel("/api/filetree/renameDocByID", { id, title });
+            },
             title: (id: string) => getTaskTitle(id),
             openBlock: (id: string) => this.openBlock(id),
             removeBlock: async (id: string) => { await deleteBlock(id); },
