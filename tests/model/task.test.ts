@@ -85,3 +85,25 @@ describe("W13 取标题（不能把子块文本带进来）", () => {
         expect(taskTitleFromKramdown("")).toBe("");
     });
 });
+
+describe("W14 缩进的任务标记（SQL 的 markdown 列会带缩进，块级 kramdown 不带）", () => {
+    it("带缩进也认得出是任务", () => {
+        expect(isTaskKramdown("  - [ ] 子任务")).toBe(true);
+        expect(isTaskKramdown("    - [X] 更深")).toBe(true);
+    });
+    it("取标题时去掉缩进", () => {
+        expect(taskTitleFromKramdown("  - [ ] 子任务")).toBe("子任务");
+    });
+    it("切换完成状态**必须保住缩进**（否则嵌套结构会被压平）", () => {
+        expect(setTaskDone("  - [ ] 子任务", true)).toBe("  - [X] 子任务");
+        expect(setTaskDone("    - [X] 更深", false)).toBe("    - [ ] 更深");
+    });
+    it("带 ial 且带缩进", () => {
+        expect(setTaskDone('  - {: id="A"}[ ] t', true)).toBe('  - {: id="A"}[X] t');
+        expect(taskTitleFromKramdown('  - {: id="A"}[ ] t')).toBe("t");
+    });
+    it("非任务行不受影响", () => {
+        expect(isTaskKramdown("  普通段落")).toBe(false);
+        expect(setTaskDone("  普通段落", true)).toBeNull();
+    });
+});

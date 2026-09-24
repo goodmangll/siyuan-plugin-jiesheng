@@ -4,12 +4,21 @@
  * 这一层只做「接线」：把 commands / api / ui 三块拼到思源的 Plugin 生命周期上。
  * 所有可测的逻辑都在下层，这里不做判断。
  */
-import { Plugin, fetchSyncPost, getActiveEditor, showMessage } from "siyuan";
+import { Plugin, fetchSyncPost, getActiveEditor, openTab, showMessage } from "siyuan";
 import {
     appendBlock, deleteBlock, getBlockKramdown, getTaskAttrs, getTaskTitle, insertBlockAfter,
     resolveTaskBlock, setBlockAttrs, setTransport, updateBlockMarkdown,
 } from "./api/blocks";
 import { countSelectedBlocks } from "./api/dom";
+import { createTaskIn, ensureInboxDoc, setAttrsAndWait } from "./api/views";
+import { runSql } from "./api/blocks";
+import { mountTab, type TabHandle } from "./views/mountTab";
+import { boardSql, countSql, listSql, smartListIds, type SmartListId } from "./views/query";
+import { toViewTasks, type TaskRow } from "./views/model";
+import type { ViewHost, ViewId } from "./views/host";
+import { patchPriority, patchRange } from "./ui/panelActions";
+import { toDateStr } from "./model/date";
+import { ATTR } from "./model/attrs";
 import { cursorBlockId, taskBlockIdFromElement, type ProtyleLike } from "./api/dom";
 import type { KernelResponse } from "./api/blocks";
 import { COMMANDS, type TaskCommandDeps } from "./commands";
@@ -19,6 +28,7 @@ import { isDone, setTaskDone } from "./model/task";
 import { generateNextRepeat, type GenerateDeps } from "./generate";
 
 
+const TAB_TYPE = "taskFlowTab";
 const DOCK_TYPE = "taskFlowDock";
 const NOT_READY = "任务流：插件仍在初始化，请稍后再试";
 
@@ -28,6 +38,9 @@ const ICON = '<symbol id="iconTaskFlow" viewBox="0 0 32 32">'
 
 export default class TaskFlow extends Plugin {
     private panel: TaskPanelHandle | null = null;
+    private tab: TabHandle | null = null;
+    /** 视图里点了某张卡片后要固定在面板上的任务；在编辑器里点一下即解除 */
+    private pinnedTask: string | null = null;
     private transportReady = false;
 
     async onload(): Promise<void> {
@@ -112,6 +125,115 @@ export default class TaskFlow extends Plugin {
         } catch (e) {
             showMessage("任务流：侧栏面板注册失败 —— " + (e as Error).message, 6000, "error");
         }
+
+        // 全屏 Tab：视图层的画布。Dock 侧栏放不下看板的横排多列与日历的 7 列网格。
+        try {
+            this.addTab({
+                type: TAB_TYPE,
+                init: (custom) => {
+                    const el = (custom?.element ?? (this as unknown as { element?: HTMLElement }).element) as HTMLElement | undefined;
+                    if (!el) {
+                        showMessage("任务流：Tab 容器拿不到", 5000, "error");
+                        return;
+                    }
+                    this.tab = mountTab(el, this.buildViewHost());
+                },
+                destroy: () => {
+                    this.tab?.unmount();
+                    this.tab = null;
+                },
+            });
+        } catch (e) {
+            showMessage("任务流：Tab 注册失败 —— " + (e as Error).message, 6000, "error");
+        }
+
+        // 在编辑器里点一下就解除卡片固定，否则面板会一直停在上次点的那条
+        document.addEventListener("click", (e) => {
+            const t = e.target as HTMLElement | null;
+            if (t?.closest?.(".tf-tab-root")) {
+                return;
+            }
+            this.pinnedTask = null;
+        }, true);
+    }
+
+    /** 打开任务 Tab */
+    private openTaskTab(): void {
+        try {
+            void openTab({
+                app: this.app,
+                custom: {
+                    id: this.name + TAB_TYPE,
+                    icon: "iconTaskFlow",
+                    title: "任务",
+                },
+            });
+        } catch (e) {
+            showMessage("任务流：Tab 打开失败 —— " + (e as Error).message, 5000, "error");
+        }
+    }
+
+    /** 视图层的宿主实现：取数 / 写数都在这一层，组件不碰思源 API */
+    private buildViewHost(): ViewHost {
+        return {
+            today: () => toDateStr(new Date()),
+
+            load: async (view: ViewId, today: string) => {
+                const stmt = view === "board"
+                    ? boardSql({ today })
+                    : listSql(view, { today });
+                return toViewTasks(await runSql<TaskRow>(stmt), today);
+            },
+
+            counts: async (today: string) => {
+                const pairs = await Promise.all(smartListIds().map(async (id) => {
+                    const rows = await runSql<{ c: number }>(countSql(id, { today }));
+                    return [id, rows[0]?.c ?? 0] as const;
+                }));
+                return Object.fromEntries(pairs) as Record<SmartListId, number>;
+            },
+
+            toggleDone: (id: string) => this.toggleDone(id),
+
+            openBlock: (id: string) => this.openBlock(id),
+
+            openDetail: (id: string) => {
+                this.pinnedTask = id;
+                this.openDock();
+                this.panel?.refresh();
+            },
+
+            setDue: async (id: string, due: string | null) => {
+                const attrs = await getTaskAttrs(id);
+                // 走 patchRange：它已经处理了「改日期时提醒跟着平移」这条语义
+                const patch = patchRange(attrs, attrs[ATTR.start] ?? "", due ?? "");
+                // 必须等写入**可见**再返回：否则紧接着的重载会读到旧值，
+                // 界面看起来像"改了没生效"（真机实测约 1 秒延迟）
+                await setAttrsAndWait(id, patch, ATTR.due, due ?? "");
+            },
+
+            setPriority: async (id: string, priority) => {
+                await setAttrsAndWait(id, patchPriority(priority), ATTR.pri, patchPriority(priority)[ATTR.pri]);
+            },
+
+            createTask: async (title: string, due: string | null) => {
+                const doc = await ensureInboxDoc();
+                if (!doc) {
+                    showMessage("任务流：找不到可用的笔记本，无法新建任务", 5000, "error");
+                    return;
+                }
+                await createTaskIn(doc, title, due);
+            },
+
+            subscribe: (onChange: () => void) => {
+                // 外部改动（编辑器里改了属性）也要让视图跟上，否则看板会是旧的
+                const handler = (): void => { onChange(); };
+                this.eventBus.on("ws-main", handler);
+                return () => { this.eventBus.off("ws-main", handler); };
+            },
+
+            toast: (m: string) => showMessage(m, 3000),
+        };
     }
 
     onunload(): void {
@@ -178,7 +300,8 @@ export default class TaskFlow extends Plugin {
     /** 面板宿主：全部通过 api 层，面板本身不碰思源 API */
     private buildPanelHost() {
         return {
-            currentBlockId: () => this.resolvedTaskBlockId(),
+            // 视图里点了卡片 → 固定到那条；否则跟光标走
+            currentBlockId: async () => this.pinnedTask ?? await this.resolvedTaskBlockId(),
             readAttrs: (id: string) => getTaskAttrs(id),
             writeAttrs: (id: string, patch: Record<string, string>) => setBlockAttrs(id, patch),
             appendSubtask: async (id: string, markdown: string) => { await appendBlock(id, markdown); },
@@ -211,6 +334,7 @@ export default class TaskFlow extends Plugin {
             },
             readKramdown: (id) => getBlockKramdown(id),
             writeKramdown: (id, md) => updateBlockMarkdown(id, md),
+            openTaskTab: () => this.openTaskTab(),
             // ⌥⇧D 走的是这一条（块标菜单走 buildBlockMenuDeps 的那条）。
             // 这里曾经写成 `openPanel: () => {…}`，连参数都不收 ——
             // 所以命令层传下来的 focus 在插件这一层就被丢了，面板永远不聚焦。
