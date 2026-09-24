@@ -14,7 +14,7 @@ import {
     patchRemindAdd, patchRemindClear, patchRemindPreset, patchRemindRemove,
     patchAllDay, patchRepeatClear, patchRepeatCount, patchRepeatExdateAdd, patchRepeatExdateRemove,
     patchRepeatFrom, patchRepeatPreset, patchRepeatUntil, repeatExdates, repeatRuleUntil,
-    subtaskMarkdown, type Patch,
+    type Patch,
 } from "./panelActions";
 
 export interface TaskPanelHost {
@@ -22,8 +22,17 @@ export interface TaskPanelHost {
     currentBlockId(): Promise<string | null>;
     readAttrs(id: string): Promise<Record<string, string>>;
     writeAttrs(id: string, patch: Patch): Promise<void>;
-    /** 在任务项内部追加一个子任务 */
-    appendSubtask(id: string, markdown: string): Promise<void>;
+    /* ── 位置即关系：子任务 = 子文档 ── */
+    /** 某个任务的直属子任务 */
+    childTasks(id: string): Promise<{ id: string; title: string }[]>;
+    /** 新建子任务（= 在父任务下建子文档） */
+    addSubTask(id: string, title: string): Promise<void>;
+    /** 关联主任务 */
+    linkToParent(id: string, parentId: string): Promise<void>;
+    /** 解除主任务 */
+    detach(id: string): Promise<void>;
+    /** 改任务名（= 文档重命名） */
+    renameTask(id: string, title: string): Promise<void>;
     /** 读任务标题（kramdown 首行） */
     title(id: string): Promise<string>;
     /** 跳到该块（打开所在文档并定位） */
@@ -75,6 +84,8 @@ export function TaskPanel({ host, onReady }: { host: TaskPanelHost; onReady?: (r
     const [done, setDone] = useState(false);
     const [title, setTitle] = useState("");
     const [subtask, setSubtask] = useState("");
+    const [children, setChildren] = useState<{ id: string; title: string }[]>([]);
+    const [titleDraft, setTitleDraft] = useState("");
     const [repeatId, setRepeatId] = useState<PresetId>("daily");
     const [customAt, setCustomAt] = useState("");
     const [countText, setCountText] = useState("");
@@ -100,7 +111,10 @@ export function TaskPanel({ host, onReady }: { host: TaskPanelHost; onReady?: (r
         try {
             setAttrs(await host.readAttrs(target));
             setDone(await host.isDone(target));
-            setTitle(await host.title(target));
+            const t = await host.title(target);
+            setTitle(t);
+            setTitleDraft(t);
+            setChildren(await host.childTasks(target).catch(() => []));
         } catch {
             setAttrs({});
         }
@@ -177,9 +191,17 @@ export function TaskPanel({ host, onReady }: { host: TaskPanelHost; onReady?: (r
     return (
         <div className="task-flow-panel" data-state={ready ? "ready" : "loading"} style={{ padding: "10px 12px", fontSize: 13, lineHeight: 1.7 }}>
             <div style={{ display: "flex", alignItems: "center", marginBottom: 8 }}>
-                <span style={{ fontWeight: 600, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {title || "任务"}
-                </span>
+                <input
+                    className="b3-text-field"
+                    style={{ fontWeight: 600, flex: 1, fontSize: 13, marginRight: 6 }}
+                    value={titleDraft}
+                    placeholder="任务名"
+                    onChange={(e) => setTitleDraft(e.target.value)}
+                    onBlur={() => {
+                        const t = titleDraft.trim();
+                        if (t && t !== title) void host.renameTask(blockId, t).then(() => void reload(blockId));
+                    }}
+                />
                 <a
                     style={{ fontSize: 12, opacity: 0.6, cursor: "pointer", flex: "0 0 auto" }}
                     onClick={() => host.openBlock(blockId)}
@@ -361,22 +383,32 @@ export function TaskPanel({ host, onReady }: { host: TaskPanelHost; onReady?: (r
                 />
             </div>
 
-            {/* 子任务 */}
+            {/* 子任务 = 子文档（位置即关系） */}
             <div style={rowStyle}>
                 <span style={labelStyle}>子任务</span>
                 <input
-                    className="b3-text-field" style={{ ...fieldStyle, flex: 1 }} placeholder="回车添加"
+                    className="b3-text-field" style={{ ...fieldStyle, flex: 1 }} placeholder="回车新建子任务（会建一个子文档）"
                     value={subtask}
                     onChange={(e) => setSubtask(e.target.value)}
                     onKeyDown={(e) => {
                         if (e.key !== "Enter" || !subtask.trim()) return;
-                        void host.appendSubtask(blockId, subtaskMarkdown(subtask)).then(() => {
+                        void host.addSubTask(blockId, subtask).then(() => {
                             setSubtask("");
                             void reload(blockId);
                         });
                     }}
                 />
+                <span style={{ opacity: 0.5, fontSize: 11, marginLeft: 6 }}>{children.length}</span>
             </div>
+            {children.length > 0 && (
+                <div style={{ marginLeft: "3.5em", marginBottom: 6 }}>
+                    {children.map((c) => (
+                        <div key={c.id} style={{ fontSize: 12, lineHeight: 1.9 }}>
+                            <a style={{ cursor: "pointer" }} onClick={() => host.openBlock(c.id)}>{c.title}</a>
+                        </div>
+                    ))}
+                </div>
+            )}
 
             {/* 底部动作 */}
             <div style={{ ...rowStyle, marginTop: 10, borderTop: "1px solid var(--b3-border-color)", paddingTop: 8 }}>
@@ -393,6 +425,16 @@ export function TaskPanel({ host, onReady }: { host: TaskPanelHost; onReady?: (r
                         void host.removeBlock(blockId);
                     }}
                 >删除</button>
+                <button
+                    className="b3-button b3-button--outline" style={btn}
+                    onClick={() => host.openBlock(blockId)}
+                    title="用思源原生编辑器写正文（任务=文档，正文就是文档正文）"
+                >打开文档</button>
+                <button
+                    className="b3-button b3-button--outline" style={btn}
+                    onClick={() => void host.detach(blockId).then(() => { host.toast?.("已解除主任务"); void reload(blockId); })}
+                    title="把任务挂回笔记本顶层"
+                >解除主任务</button>
                 <button className="b3-button b3-button--outline" style={btn} onClick={() => void reload()}>刷新</button>
             </div>
             <div style={{ fontSize: 11, opacity: 0.45 }}>{blockId}</div>

@@ -8,7 +8,11 @@ function makeHost(over: Partial<TaskPanelHost> = {}): TaskPanelHost {
         currentBlockId: async () => "T1",
         readAttrs: async () => ({ "custom-due": "20260925", "custom-pri": "1" }),
         writeAttrs: async () => undefined,
-        appendSubtask: async () => undefined,
+        childTasks: async () => [],
+        addSubTask: async () => undefined,
+        linkToParent: async () => undefined,
+        detach: async () => undefined,
+        renameTask: async () => undefined,
         toggleDone: async () => undefined,
         isDone: async () => false,
         title: async () => "写周报",
@@ -74,10 +78,11 @@ describe("P0 打开面板时的焦点（设计 T8 要求「面板打开且日期
 });
 
 describe("P1 标题与跳转", () => {
-    it("显示 host 给的标题", async () => {
+    it("显示 host 给的标题（标题是可编辑输入框 —— 改名即文档重命名）", async () => {
         await mount(makeHost());
         await waitFor(() => {
-            expect(document.querySelector(".task-flow-panel")?.textContent).toContain("写周报");
+            const el = document.querySelector(".task-flow-panel input") as HTMLInputElement;
+            expect(el.value).toBe("写周报");
         });
     });
     it("点「跳转到块」调用 host.openBlock", async () => {
@@ -112,7 +117,7 @@ describe("P3 输入框不能在每次按键时就写库（曾经的真 bug：敲
     it("在截止框里输入过程中不写库", async () => {
         const writes: Record<string, string>[] = [];
         await mount(makeHost({ writeAttrs: async (_id, patch) => { writes.push(patch); } }));
-        const due = document.querySelector(".task-flow-panel input") as HTMLInputElement;
+        const due = document.querySelector('.task-flow-panel [data-tf="due"]') as HTMLInputElement;
         await act(async () => {
             const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
             setter.call(due, "2026-10-01");
@@ -126,7 +131,7 @@ describe("P3 输入框不能在每次按键时就写库（曾经的真 bug：敲
             readAttrs: async () => ({ "custom-due": "202609251430" }),
             writeAttrs: async (_id, patch) => { writes.push(patch); },
         }));
-        const due = document.querySelector(".task-flow-panel input") as HTMLInputElement;
+        const due = document.querySelector('.task-flow-panel [data-tf="due"]') as HTMLInputElement;
         await act(async () => {
             const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
             setter.call(due, "2026-10-01");

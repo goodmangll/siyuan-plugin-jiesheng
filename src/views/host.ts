@@ -54,8 +54,19 @@ export interface ViewHost {
     setPriority(id: string, priority: Priority): Promise<void>;
     /** 改清单名；空串 = 移出清单（收件箱） */
     setList(id: string, list: string): Promise<void>;
-    /** 新建任务 */
+    /** 新建任务（= 新建文档） */
     createTask(title: string, due: string | null): Promise<void>;
+    /* ── 位置即关系：子任务 = 子文档 ── */
+    /** 某个任务的直属子任务 */
+    childTasks(parentId: string): Promise<{ id: string; title: string }[]>;
+    /** 新建子任务（= 在父任务下建子文档） */
+    addSubTask(parentId: string, title: string): Promise<void>;
+    /** 关联主任务：把任务挂到目标下（任何层级一步到位） */
+    linkToParent(taskId: string, parentId: string): Promise<void>;
+    /** 解除主任务：挂回笔记本顶层 */
+    detach(taskId: string): Promise<void>;
+    /** 改文档标题（= 任务改名） */
+    renameTask(id: string, title: string): Promise<void>;
     /** 外部变动（思源里改了东西）时通知视图刷新；返回取消订阅 */
     subscribe?(onChange: () => void): () => void;
     /** 轻提示 */
