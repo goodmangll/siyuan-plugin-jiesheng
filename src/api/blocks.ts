@@ -7,6 +7,8 @@
  *   - 线上：由 plugin.ts 注入思源的 fetchPost
  */
 
+import { bodyBlocks, type BodyBlock } from "../model/body";
+
 export interface KernelResponse {
     code: number;
     msg?: string;
@@ -253,4 +255,29 @@ export async function appendTaskItem(docId: string, title: string): Promise<stri
         `select id from blocks where parent_id='${container}' and type='i' and subtype='t' limit 1`,
     );
     return rows[0]?.id ?? null;
+}
+
+/** 任务的正文段落（排除装标题的那个内层段落） */
+export async function getTaskBody(taskBlockId: string): Promise<BodyBlock[]> {
+    const titleId = await firstInnerParagraph(taskBlockId);
+    const rows = await runSql<{ id: string; type: string; subtype: string; text: string; sort: number }>(
+        `select id, type, subtype, markdown as text, sort from blocks
+         where parent_id='${taskBlockId}' and type='p' order by sort`,
+    );
+    return bodyBlocks(rows.map((r) => ({ id: r.id, type: r.type, subtype: r.subtype, text: r.text })), titleId);
+}
+
+/** 往任务的正文里追加一段（落在子任务列表**之前** —— appendBlock 的行为已实测） */
+export async function appendTaskBody(taskBlockId: string, text: string): Promise<void> {
+    await appendBlock(taskBlockId, (text ?? "").trim());
+}
+
+/** 改一段正文 */
+export async function updateTaskBody(blockId: string, text: string): Promise<void> {
+    await updateBlockMarkdown(blockId, (text ?? "").trim() || " ");
+}
+
+/** 删一段正文 */
+export async function deleteTaskBody(blockId: string): Promise<void> {
+    await deleteBlock(blockId);
 }

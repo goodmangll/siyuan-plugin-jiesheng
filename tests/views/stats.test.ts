@@ -75,16 +75,22 @@ describe("S3 柱状图的几何（纯 SVG，不引图表库）", () => {
 });
 
 describe("S4 分布 SQL", () => {
-    it("按清单分布：排除子任务，空清单归到「未指定」", () => {
+    it("按清单分布：空清单归到「未指定」", () => {
         const s = listDistSql();
-        expect(s).toContain("not exists");
         expect(s).toContain("custom-list");
         expect(s).toContain("coalesce");
+        expect(s).toContain("未指定");
     });
     it("按优先级分布", () => {
         const s = priorityDistSql();
         expect(s).toContain("custom-pri");
-        expect(s).toContain("not exists");
+        expect(s).toContain("coalesce");
+    });
+    it("都继承基础谓词（任务=被标记的文档）", () => {
+        for (const sql of [listDistSql(), priorityDistSql()]) {
+            expect(sql).toContain("b.type='d'");
+            expect(sql).toContain("custom-task");
+        }
     });
     it("完成趋势：按 custom-done 的日期分组", () => {
         const s = doneTrendSql("20260912", "20260926");

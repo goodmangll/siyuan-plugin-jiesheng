@@ -20,6 +20,7 @@ export const VIEW_TABS: { id: ViewId; label: string; group: "smart" | "view" }[]
     { id: "next7", label: "未来 7 天", group: "smart" },
     { id: "inbox", label: "收件箱", group: "smart" },
     { id: "all", label: "全部", group: "smart" },
+    { id: "done", label: "已完成", group: "smart" },
     { id: "board", label: "看板", group: "view" },
     { id: "calendar", label: "日历", group: "view" },
     { id: "matrix", label: "四象限", group: "view" },

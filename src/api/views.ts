@@ -79,3 +79,29 @@ export async function setAttrsAndWait(
         (v) => v === (expectValue ?? ""),
     );
 }
+
+/** 任务文档默认落的笔记本（没有就建一个） */
+export const TASK_NOTEBOOK = "任务";
+
+/**
+ * 找一个能放任务文档的笔记本。
+ *
+ * 优先用同名「任务」笔记本；没有就用第一个未关闭的。
+ * **不猜、不静默降级** —— 一个都没有就返回 null，让上层明确报错。
+ */
+export async function ensureTaskNotebook(): Promise<string | null> {
+    const notebooks = await openNotebooks();
+    const named = notebooks.find((n) => n.name === TASK_NOTEBOOK);
+    return named?.id ?? notebooks[0]?.id ?? null;
+}
+
+/**
+ * 文档标题 → 安全的路径片段。
+ *
+ * 思源的文档路径不能带 `/` 等字符，否则会建到别的目录去。
+ * 标题本身（blocks.content）不受影响，只是路径用清洗过的版本。
+ */
+export function sanitizeTitle(title: string): string {
+    const cleaned = (title ?? "").replace(/[\\/:*?"<>|#\n\r\t]/g, " ").trim();
+    return cleaned || "未命名任务";
+}

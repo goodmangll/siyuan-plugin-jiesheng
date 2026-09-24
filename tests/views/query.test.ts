@@ -1,51 +1,54 @@
 import { describe, expect, it } from "vitest";
 import {
-    boardSql, calendarSql, countSql, listSql, listsSql, openTasksWhere, smartListIds, sqlForView,
+    attr, boardSql, calendarSql, countSql, doneSql, doneTasksWhere, listSql, listsSql, openTasksWhere,
+    smartListIds, sqlForView, TASK_MARK,
 } from "../../src/views/query";
 
 const TODAY = "20260925";
 
-describe("Q1 基础谓词：未完成 + 排除子任务", () => {
-    it("包含未完成与任务项判定", () => {
-        const w = openTasksWhere();
-        expect(w).toContain("b.type='i'");
-        expect(w).toContain("b.subtype='t'");
-        expect(w).toContain("b.markdown like '- [ ]%'");
+describe("Q1 基础谓词：任务 = **被标记为任务的文档**", () => {
+    it("只认文档", () => {
+        expect(openTasksWhere()).toContain("b.type='d'");
     });
-    it("**必须**带子任务排除谓词（设计 §2.5；之前 11 个 QueryView 全漏了这条）", () => {
+    it("**必须显式标记** —— 文档数以千计，不能全算任务", () => {
         const w = openTasksWhere();
-        expect(w).toContain("not exists");
-        expect(w).toContain("p.type='l'");
-        expect(w).toContain("g.type='i' and g.subtype='t'");
+        expect(w).toContain(TASK_MARK);
+        expect(w).toContain("a.value='1'");
+        expect(w).toContain("exists");
+    });
+    it("已完成的不在「未完成」里", () => {
+        const w = openTasksWhere();
+        expect(w).toContain("custom-done");
+        expect(w).toMatch(/is null or .* = ''/);
+    });
+    it("**子任务排除谓词不再需要**（子任务是 - [ ] 块，天然不是 type='d'）", () => {
+        expect(openTasksWhere()).not.toContain("not exists");
     });
 });
 
-describe("Q2 智能清单的 SQL", () => {
-    // ⚠️ 这里曾经**断言的是错的写法**：写 b.due 单测照样绿，
-    //    真机上却是 no such column: b.due。所以下面统一断言属性子查询，
-    //    并且有一条守卫明确禁止 b.due 出现。
-    it("**任何视图的 SQL 都不许出现 b.due / b.pri**（属性在 attributes 表里）", () => {
+describe("Q2 属性一律走 attributes 子查询（块表上根本没有 due/pri 列）", () => {
+    it("任何视图 SQL 都不许出现 b.due / b.pri 这类", () => {
         const all = [
             ...smartListIds().map((id) => listSql(id, { today: TODAY })),
             ...smartListIds().map((id) => countSql(id, { today: TODAY })),
             boardSql({ today: TODAY }),
             calendarSql("20260901", "20261001"),
+            doneSql("20260901", "20261001"),
         ];
         for (const sql of all) {
-            expect(sql).not.toMatch(/\bb\.(due|pri|start|remind|repeat|list)\b/);
-            // 只要提到属性，就必须走 attributes 子查询
-            if (sql.includes("custom-")) {
-                expect(sql).toContain("from attributes");
-            }
+            expect(sql).not.toMatch(/\bb\.(due|pri|start|remind|repeat|list|done|pin)\b/);
         }
     });
-    it("今天：按 due 前缀匹配（8 位与 12 位都算今天）", () => {
-        const s = listSql("today", { today: TODAY });
-        expect(s).toContain("name='custom-due'");
-        expect(s).toContain("like '20260925%'");
+    it("attr() 生成的是 attributes 子查询", () => {
+        expect(attr("due")).toContain("from attributes");
+        expect(attr("due")).toContain("name='custom-due'");
     });
-    it("今天还要含已过期（同类产品的「今天」视图就是今天+逾期）", () => {
+});
+
+describe("Q3 智能清单的日期条件", () => {
+    it("今天：前缀匹配 + 含逾期", () => {
         const s = listSql("today", { today: TODAY });
+        expect(s).toContain("like '20260925%'");
         expect(s).toMatch(/or .*< '20260925'/);
     });
     it("明天：只匹配明天", () => {
@@ -56,17 +59,17 @@ describe("Q2 智能清单的 SQL", () => {
         expect(s).toContain(">= '20260926'");
         expect(s).toContain("< '20261003'");
     });
-    it("收件箱：没有截止日", () => {
-        expect(listSql("inbox", { today: TODAY })).toMatch(/is null/);
+    it("收件箱：没有截止日（null 或空串）", () => {
+        const s = listSql("inbox", { today: TODAY });
+        expect(s).toMatch(/is null or .* = ''/);
     });
     it("全部未完成：不加日期条件", () => {
         const s = listSql("all", { today: TODAY });
         expect(s).not.toContain("like '2026");
-        expect(s).not.toMatch(/is null\s*$/m);
     });
-    it("所有清单都继承基础谓词（子任务排除不能漏）", () => {
+    it("所有清单都继承基础谓词", () => {
         for (const id of smartListIds()) {
-            expect(listSql(id, { today: TODAY })).toContain("not exists");
+            expect(listSql(id, { today: TODAY })).toContain(TASK_MARK);
         }
     });
     it("非法 id 抛错，不静默返回全表", () => {
@@ -78,45 +81,53 @@ describe("Q2 智能清单的 SQL", () => {
     });
 });
 
-describe("Q3 计数 SQL", () => {
-    it("每个智能清单都能出计数", () => {
+describe("Q4 计数与列表同源（否则侧边栏数字和列表对不上）", () => {
+    it("两者都含相同的基础谓词与日期条件", () => {
         for (const id of smartListIds()) {
-            const s = countSql(id, { today: TODAY });
-            expect(s).toContain("count(*)");
-            expect(s).toContain("not exists");
+            const l = listSql(id, { today: TODAY });
+            const c = countSql(id, { today: TODAY });
+            expect(c).toContain("count(*)");
+            expect(l).toContain(TASK_MARK);
+            expect(c).toContain(TASK_MARK);
         }
     });
-    it("今天与列表视图的口径必须完全一致（否则数字和列表对不上）", () => {
-        const a = listSql("today", { today: TODAY });
-        const b = countSql("today", { today: TODAY });
-        const where = (s: string) => s.slice(s.indexOf("where"), s.indexOf("order by") > 0 ? s.indexOf("order by") : s.length);
-        expect(where(b)).toContain("like '20260925%'");
-        expect(where(a)).toContain("like '20260925%'");
+    it("今天这一条的口径在两边完全一致", () => {
+        expect(countSql("today", { today: TODAY })).toContain("like '20260925%'");
+        expect(listSql("today", { today: TODAY })).toContain("like '20260925%'");
     });
 });
 
-describe("Q4 看板", () => {
-    it("按清单分组：取 list 属性，并给出空清单的兜底", () => {
+describe("Q5 排序：置顶 → 优先级 → 截止日 → 更新时间", () => {
+    it("置顶排在最前，然后才是优先级", () => {
+        const sql = listSql("all", { today: TODAY });
+        // 只看 ORDER BY 那一段 —— SELECT 里也会出现 custom-pin
+        const order = sql.slice(sql.indexOf("order by"));
+        const pin = order.indexOf("custom-pin");
+        const pri = order.indexOf("custom-pri");
+        expect(pin).toBeGreaterThanOrEqual(0);
+        expect(pri).toBeGreaterThan(pin);
+    });
+});
+
+describe("Q6 看板 / 日历 / 已完成", () => {
+    it("看板取全部未完成", () => {
         const s = boardSql({ today: TODAY });
-        expect(s).toContain("custom-list");
-        expect(s).toContain("not exists");
-        expect(s).toContain("coalesce");
+        expect(s).toContain(TASK_MARK);
+        expect(s).not.toContain("like '2026");
     });
-});
-
-describe("Q5 日历", () => {
-    it("按区间取（起含、止不含）", () => {
+    it("日历按区间取（起含止不含）", () => {
         const s = calendarSql("20260901", "20261001");
         expect(s).toContain(">= '20260901'");
         expect(s).toContain("< '20261001'");
-        expect(s).toContain("not exists");
     });
-    it("日历也要算逾期的（否则月里看不到过期的）", () => {
-        expect(calendarSql("20260901", "20261001")).toContain("markdown like '- [ ]%'");
+    it("已完成按完成时间倒序", () => {
+        const s = doneSql("20260901", "20261001");
+        expect(s).toContain("custom-done");
+        expect(s).toMatch(/order by[^;]*desc/);
     });
 });
 
-describe("Q6 清单名列表（看板列要用）", () => {
+describe("Q7 清单名列表（看板列要用）", () => {
     it("只取非空的 custom-list，去重", () => {
         const s = listsSql();
         expect(s).toContain("distinct");
@@ -125,31 +136,56 @@ describe("Q6 清单名列表（看板列要用）", () => {
     });
 });
 
-describe("Q7 视图 → SQL 的分发（**曾经漏了 calendar/matrix，真机上直接报错**）", () => {
-    it("5 个智能清单各自走自己的 SQL", () => {
+describe("Q8 视图 → SQL 分发（漏一个就是真机上的「未知的智能清单」）", () => {
+    it("5 个智能清单各自能出 SQL", () => {
         for (const id of smartListIds()) {
             expect(sqlForView(id, TODAY)).toContain("from blocks b");
         }
-        expect(sqlForView("inbox", TODAY)).toContain("is null");
     });
     it("看板走 boardSql", () => {
-        expect(sqlForView("board", TODAY)).toContain("coalesce");
+        expect(sqlForView("board", TODAY)).toContain(TASK_MARK);
     });
-    it("日历与四象限走「全部未完成」（它们在组件里自己按日期/象限分组）", () => {
+    it("日历 / 四象限 / 统计走「全部未完成」", () => {
         for (const v of ["calendar", "matrix", "stats"]) {
             const s = sqlForView(v, TODAY);
             expect(s).toContain("from blocks b");
-            expect(s).toContain("not exists");
-            // 「全部」不加日期条件
             expect(s).not.toMatch(/like '20\d{6}%'/);
         }
     });
-    it("**每个视图 id 都必须能出 SQL，一个都不许漏**（这就是真机那个 bug）", () => {
+    it("**每个视图 id 都必须能出 SQL，一个都不许漏**", () => {
         for (const v of ["today", "tomorrow", "next7", "inbox", "all", "board", "calendar", "matrix", "stats"]) {
             expect(() => sqlForView(v, TODAY), `${v} 出不了 SQL`).not.toThrow();
         }
     });
     it("未知视图仍然抛错，不静默返回全表", () => {
         expect(() => sqlForView("banana", TODAY)).toThrow();
+    });
+});
+
+describe("Q9 已完成清单（没有它就没法在界面上取消完成 —— 真机踩到）", () => {
+    it("done 在清单列表里", () => {
+        expect(smartListIds()).toContain("done");
+    });
+    it("已完成谓词：有 done 时间戳，且在近 N 天内", () => {
+        const w = doneTasksWhere(TODAY);
+        expect(w).toContain("custom-done");
+        expect(w).toContain("is not null");
+        expect(w).toContain(">= '20260911'"); // 今天 -14 天
+    });
+    it("已完成也要求任务标记", () => {
+        expect(doneTasksWhere(TODAY)).toContain(TASK_MARK);
+    });
+    it("listSql('done') 用的是已完成谓词，不是未完成谓词", () => {
+        const s = listSql("done", { today: TODAY });
+        expect(s).toContain("custom-task");
+        expect(s).not.toMatch(/custom-done.*is null/);
+    });
+    it("其它清单不受影响，仍是未完成谓词", () => {
+        for (const id of ["today", "tomorrow", "next7", "inbox", "all"] as const) {
+            expect(listSql(id, { today: TODAY })).toMatch(/custom-done.*is null/);
+        }
+    });
+    it("计数与列表同源", () => {
+        expect(countSql("done", { today: TODAY })).toContain("custom-done");
     });
 });
