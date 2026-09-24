@@ -216,3 +216,24 @@ export function sqlForView(view: string, today: string): string {
     }
     return listSql(view, { today });
 }
+
+/**
+ * 提醒候选：**未完成、有 custom-remind 的任务文档**。
+ *
+ * 前端（弹通知）和内核（发 webhook）**共用这一条** ——
+ * 两套 SQL 迟早会漂移，出现"界面上弹了但 webhook 没发"这种诡异现象。
+ */
+export function remindCandidatesSql(): string {
+    return `select b.id, b.content as title,
+       ${attr("remind")} as remind,
+       ${attr("due")} as due,
+       ${attr("pri")} as pri,
+       ${attr("list")} as lst
+from blocks b
+where b.type='d'
+  and exists (select 1 from attributes a where a.block_id=b.id and a.name='${TASK_MARK}' and a.value='1')
+  and (${attr("done")} is null or ${attr("done")} = '')
+  and (${attr("abandoned")} is null or ${attr("abandoned")} != '1')
+  and ${attr("remind")} is not null and ${attr("remind")} != ''
+limit 2000`;
+}
