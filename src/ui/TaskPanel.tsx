@@ -33,6 +33,10 @@ export interface TaskPanelHost {
     detach(id: string): Promise<void>;
     /** 改任务名（= 文档重命名） */
     renameTask(id: string, title: string): Promise<void>;
+    /** 设置标签 */
+    setTags(id: string, tags: string[]): Promise<void>;
+    /** 读标签 */
+    tagsOf(id: string): Promise<string[]>;
     /** 读任务标题（kramdown 首行） */
     title(id: string): Promise<string>;
     /** 跳到该块（打开所在文档并定位） */
@@ -86,6 +90,8 @@ export function TaskPanel({ host, onReady }: { host: TaskPanelHost; onReady?: (r
     const [subtask, setSubtask] = useState("");
     const [children, setChildren] = useState<{ id: string; title: string }[]>([]);
     const [titleDraft, setTitleDraft] = useState("");
+    const [tags, setTags] = useState<string[]>([]);
+    const [tagDraft, setTagDraft] = useState("");
     const [repeatId, setRepeatId] = useState<PresetId>("daily");
     const [customAt, setCustomAt] = useState("");
     const [countText, setCountText] = useState("");
@@ -115,6 +121,7 @@ export function TaskPanel({ host, onReady }: { host: TaskPanelHost; onReady?: (r
             setTitle(t);
             setTitleDraft(t);
             setChildren(await host.childTasks(target).catch(() => []));
+            setTags(await host.tagsOf(target).catch(() => []));
         } catch {
             setAttrs({});
         }
@@ -382,6 +389,38 @@ export function TaskPanel({ host, onReady }: { host: TaskPanelHost; onReady?: (r
                     onBlur={(e) => void apply(patchList(e.target.value))}
                 />
             </div>
+
+            {/* 标签 —— 思源原生 tags，写进去思源会自动建索引 */}
+            <div style={rowStyle}>
+                <span style={labelStyle}>标签</span>
+                <input
+                    className="b3-text-field" style={{ ...fieldStyle, flex: 1 }} placeholder="回车添加标签"
+                    value={tagDraft}
+                    onChange={(e) => setTagDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                        if (e.key !== "Enter" || !tagDraft.trim()) return;
+                        const next = [...new Set([...tags, tagDraft.trim()])];
+                        setTagDraft("");
+                        void host.setTags(blockId, next).then(() => { setTags(next); });
+                    }}
+                />
+            </div>
+            {tags.length > 0 && (
+                <div style={{ marginLeft: "3.5em", marginBottom: 6, fontSize: 12 }}>
+                    {tags.map((tg) => (
+                        <span key={tg} data-tf-panel-tag={tg} style={{ marginRight: 8, opacity: 0.8 }}>
+                            #{tg}
+                            <a
+                                style={{ marginLeft: 4, cursor: "pointer", opacity: 0.6 }}
+                                onClick={() => {
+                                    const next = tags.filter((x) => x !== tg);
+                                    void host.setTags(blockId, next).then(() => setTags(next));
+                                }}
+                            >×</a>
+                        </span>
+                    ))}
+                </div>
+            )}
 
             {/* 子任务 = 子文档（位置即关系） */}
             <div style={rowStyle}>

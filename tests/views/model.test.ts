@@ -21,6 +21,7 @@ const row = (over: Partial<TaskRow> = {}): TaskRow => ({
     lst: null,
     done: null,
     pin: null,
+    tags: null,
     ...over,
 });
 
@@ -103,6 +104,11 @@ describe("M4 属性映射", () => {
         expect(toViewTask(row({ remind: "" }), TODAY).hasReminder).toBe(false);
         expect(toViewTask(row({ repeat: "FREQ=DAILY" }), TODAY).repeat).toBe("FREQ=DAILY");
         expect(toViewTask(row({ repeat: "" }), TODAY).repeat).toBeNull();
+    });
+    it("标签：逗号串 → 数组，去空白", () => {
+        expect(toViewTask(row({ tags: "工作,紧急" }), TODAY).tags).toEqual(["工作", "紧急"]);
+        expect(toViewTask(row({ tags: " 工作 , , 紧急 " }), TODAY).tags).toEqual(["工作", "紧急"]);
+        expect(toViewTask(row({ tags: null }), TODAY).tags).toEqual([]);
     });
     it("保留 box 与路径（清单来源 + 跳转）", () => {
         const t = toViewTask(row(), TODAY, "工作");

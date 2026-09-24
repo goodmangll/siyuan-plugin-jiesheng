@@ -31,6 +31,8 @@ export interface TaskRow {
     done: string | null;
     /** 置顶标记 */
     pin: string | null;
+    /** 标签（思源原生 #tag#，逗号串，来自 spans 表） */
+    tags: string | null;
 }
 
 export interface ViewTask {
@@ -54,6 +56,8 @@ export interface ViewTask {
     done: string | null;
     /** 是否置顶 */
     pinned: boolean;
+    /** 标签（思源原生 #tag#） */
+    tags: string[];
     isToday: boolean;
     /** 严格早于今天 */
     overdue: boolean;
@@ -87,6 +91,7 @@ export function toViewTask(row: TaskRow, today: string, notebookName?: string): 
         box: row.box ?? "",
         done: (row.done ?? "").trim() || null,
         pinned: (row.pin ?? "").trim() !== "",
+        tags: (row.tags ?? "").split(",").map((x) => x.trim()).filter(Boolean),
         // 逾期按**天**判：今天 14:30 已经过点了也不算逾期
         overdue: day !== null && day < today,
         isToday: day === today,

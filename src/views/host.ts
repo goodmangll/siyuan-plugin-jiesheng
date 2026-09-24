@@ -67,6 +67,8 @@ export interface ViewHost {
     detach(taskId: string): Promise<void>;
     /** 改文档标题（= 任务改名） */
     renameTask(id: string, title: string): Promise<void>;
+    /** 设置标签（思源原生 tags 属性；思源会自动建索引） */
+    setTags(id: string, tags: string[]): Promise<void>;
     /** 外部变动（思源里改了东西）时通知视图刷新；返回取消订阅 */
     subscribe?(onChange: () => void): () => void;
     /** 轻提示 */

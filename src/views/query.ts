@@ -17,11 +17,30 @@ import { addDays, parseDate, toDateStr } from "../model/date";
 export const attr = (name: string): string =>
     `(select value from attributes where block_id=b.id and name='custom-${name}')`;
 
+/**
+ * 标签子查询。
+ *
+ * 思源原生的 `#tag#` **不在 blocks 表里** —— 它存在 `spans` 表（`type='tag'`），
+ * 按 `root_id` 归到所属文档（真机确认）。
+ * 用 group_concat 聚成一个逗号串，避免给主查询带来行数放大。
+ */
+export const TAGS_SUB = `(select group_concat(s.content, ',') from spans s
+        where s.type='tag' and s.root_id=b.id)`;
+
+/** 所有标签（面板/筛选用） */
+export function tagsSql(): string {
+    return `select distinct s.content as name, s.root_id as docId
+from spans s
+where s.type='tag'
+order by s.content`;
+}
+
 /** 统一取的列。文档的标题在 **content** 里（文档块的 markdown 是空的，真机实测）。 */
 export const SELECT_COLS = `b.id, b.content as title, b.hpath, b.box, b.updated,
        ${attr("pri")} as pri, ${attr("due")} as due, ${attr("start")} as start,
        ${attr("remind")} as remind, ${attr("repeat")} as repeat,
-       ${attr("list")} as lst, ${attr("done")} as done, ${attr("pin")} as pin`;
+       ${attr("list")} as lst, ${attr("done")} as done, ${attr("pin")} as pin,
+       ${TAGS_SUB} as tags`;
 
 /** 标记属性：文档带了这个才算任务 */
 export const TASK_MARK = "custom-task";

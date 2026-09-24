@@ -248,6 +248,12 @@ export default class TaskFlow extends Plugin {
                 return rows.map((r) => r.name).filter(Boolean);
             },
 
+            // 标签：思源**内置**的 tags 属性，写进去思源会自动在 spans 里建索引
+            setTags: async (id: string, tags: string[]) => {
+                const v = tags.map((x) => x.trim()).filter(Boolean).join(",");
+                await setAttrsAndWait(id, { tags: v }, "tags", v);
+            },
+
             // ★ 任务 = 文档，文档没有复选框 → 完成状态就是 custom-done 时间戳
             toggleDone: (id: string) => this.toggleTaskDoneWithRepeat(id),
 
@@ -500,6 +506,19 @@ export default class TaskFlow extends Plugin {
             lists: async () => {
                 const rows = await runSql<{ name: string }>(listsSql());
                 return rows.map((r) => r.name).filter(Boolean);
+            },
+
+            // 标签：思源**内置**的 tags 属性，写进去思源会自动在 spans 里建索引
+            setTags: async (id: string, tags: string[]) => {
+                const v = tags.map((x) => x.trim()).filter(Boolean).join(",");
+                await setAttrsAndWait(id, { tags: v }, "tags", v);
+            },
+            tagsOf: async (id: string) => {
+                const rows = await runSql<{ t: string | null }>(
+                    `select (select group_concat(s.content, ',') from spans s
+                      where s.type='tag' and s.root_id=b.id) t from blocks b where b.id='${id}'`,
+                );
+                return (rows[0]?.t ?? "").split(",").map((x) => x.trim()).filter(Boolean);
             },
 
             // ★ 任务 = 文档，文档没有复选框 → 完成状态就是 custom-done 时间戳
