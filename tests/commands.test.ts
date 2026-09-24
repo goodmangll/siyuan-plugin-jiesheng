@@ -151,3 +151,30 @@ describe("currentTaskBlockId 的容错", () => {
         expect(await currentTaskBlockId(deps)).toBeNull();
     });
 });
+
+describe("T21-T23 完成时触发重复生成钩子", () => {
+    it("从未完成 → 完成：触发 onCompleted", async () => {
+        const done: string[] = [];
+        deps.onCompleted = async (id: string) => { done.push(id); };
+        kramdown["TASK"] = "- [ ] 标题";
+        await toggleDone(deps);
+        expect(done).toEqual(["TASK"]);
+        delete deps.onCompleted;
+    });
+    it("从完成 → 未完成：不触发", async () => {
+        const done: string[] = [];
+        deps.onCompleted = async (id: string) => { done.push(id); };
+        kramdown["TASK"] = "- [X] 标题";
+        await toggleDone(deps);
+        expect(done).toEqual([]);
+        delete deps.onCompleted;
+    });
+    it("onCompleted 抛异常不影响完成状态写入", async () => {
+        deps.onCompleted = async () => { throw new Error("gen boom"); };
+        kramdown["TASK"] = "- [ ] 标题";
+        await expect(toggleDone(deps)).resolves.toBeUndefined();
+        expect(krWrites).toHaveLength(1);
+        expect(krWrites[0].md).toBe("- [X] 标题");
+        delete deps.onCompleted;
+    });
+});

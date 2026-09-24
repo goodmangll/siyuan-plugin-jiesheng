@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
-    appendBlock, firstInnerParagraph, getTaskAttrs, isSubtaskBlock, isTaskBlock, resolveTaskBlock,
+    appendBlock, firstInnerParagraph, getTaskAttrs, insertBlockAfter, isSubtaskBlock, isTaskBlock,
+    resolveTaskBlock,
     setBlockAttrs, setTransport, type KernelResponse,
 } from "../../src/api/blocks";
 
@@ -178,5 +179,22 @@ describe("appendBlock", () => {
         await appendBlock("TASK", "  - [ ] 子任务");
         expect(calls[0].url).toBe("/api/block/appendBlock");
         expect(calls[0].data).toMatchObject({ parentID: "TASK", dataType: "markdown", data: "  - [ ] 子任务" });
+    });
+});
+
+describe("insertBlockAfter", () => {
+    it("返回字符串 id", async () => {
+        install((url) => (url === "/api/block/insertBlock" ? ok("NEWID") : ok(null)));
+        expect(await insertBlockAfter("PREV", "- [ ] x")).toBe("NEWID");
+        expect(calls[0].data).toMatchObject({ previousID: "PREV", dataType: "markdown" });
+    });
+    it("返回 operation 数组时也能取到 id", async () => {
+        install((url) => (url === "/api/block/insertBlock"
+            ? ok([{ doOperations: [{ id: "NEWID2" }] }]) : ok(null)));
+        expect(await insertBlockAfter("PREV", "- [ ] x")).toBe("NEWID2");
+    });
+    it("拿不到 id → null，不抛", async () => {
+        install((url) => (url === "/api/block/insertBlock" ? ok([]) : ok(null)));
+        expect(await insertBlockAfter("PREV", "- [ ] x")).toBeNull();
     });
 });

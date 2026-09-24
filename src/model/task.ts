@@ -67,3 +67,22 @@ export function isSubtask(types: {
 }): boolean {
     return types.parentType === "l" && types.grandType === "i" && types.grandSubtype === "t";
 }
+
+/**
+ * 从任务块的 kramdown 里取标题。
+ *
+ * 用 kramdown 而不是 `blocks.content`：列表项块的 `content` **包含后代文本**，
+ * 拿它当标题会把子任务和正文一起带上。
+ * kramdown 的首行则是 `- {: id="…"}[ ] 标题` 这个干净形态。
+ */
+export function taskTitleFromKramdown(kramdown: string | null | undefined): string {
+    if (typeof kramdown !== "string") {
+        return "";
+    }
+    const first = kramdown.split("\n", 1)[0];
+    const m = TASK_LINE_RE.exec(first);
+    if (!m) {
+        return first.trim();
+    }
+    return first.slice(m[0].length).trim();
+}

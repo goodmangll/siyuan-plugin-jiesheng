@@ -163,3 +163,34 @@ export async function resolveTaskBlock(id: string, maxUp = 3): Promise<string | 
 export async function appendBlock(parentID: string, markdown: string): Promise<void> {
     await call<unknown>("/api/block/appendBlock", { parentID, dataType: "markdown", data: markdown });
 }
+
+/**
+ * 在某个块**后面**插入一个新块，返回新块的 id（拿不到则 null）。
+ * 用于「重复任务生成」：把下一个 `- [ ]` 紧跟在刚完成的那条后面。
+ */
+export async function insertBlockAfter(previousID: string, markdown: string): Promise<string | null> {
+    const d = await call<unknown>("/api/block/insertBlock", {
+        previousID, dataType: "markdown", data: markdown,
+    });
+    // 思源的返回形态不稳定：可能直接是 id 字符串、也可能是 operation 数组
+    if (typeof d === "string" && d) {
+        return d;
+    }
+    const arr = Array.isArray(d) ? d : [];
+    for (const op of arr) {
+        const id = (op as { id?: string; doOperations?: { id?: string }[] })?.id
+            ?? (op as { doOperations?: { id?: string }[] })?.doOperations?.[0]?.id;
+        if (id) {
+            return id;
+        }
+    }
+    return null;
+}
+
+/** 取任务标题（从 kramdown 首行解析，避免把子块文本带进来） */
+export async function getTaskTitle(id: string): Promise<string> {
+    const kr = await getBlockKramdown(id);
+    const first = kr.split("\n", 1)[0];
+    const m = /^(-\s+(?:\{:[^}]*\}\s*)?)(\[ \]|\[[xX]\])/.exec(first);
+    return (m ? first.slice(m[0].length) : first).trim();
+}

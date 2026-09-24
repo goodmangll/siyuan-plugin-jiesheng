@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isSubtask, isTaskKramdown, setTaskDone } from "../../src/model/task";
+import { isSubtask, isTaskKramdown, setTaskDone, taskTitleFromKramdown } from "../../src/model/task";
 
 const KR = [
     '- {: id="A" updated="20260925"}[ ] 父任务',
@@ -68,5 +68,20 @@ describe("T5 子任务判定", () => {
     });
     it("缺字段 → 不是子任务，不抛异常", () => {
         expect(isSubtask({})).toBe(false);
+    });
+});
+
+describe("W13 取标题（不能把子块文本带进来）", () => {
+    it("带 ial 的 kramdown", () => {
+        expect(taskTitleFromKramdown('- {: id="A" updated="1"}[ ] 写周报\n\n  正文')).toBe("写周报");
+    });
+    it("已完成标记", () => {
+        expect(taskTitleFromKramdown("- [X] 复习 JVM")).toBe("复习 JVM");
+    });
+    it("没有标记时退回首行", () => {
+        expect(taskTitleFromKramdown("普通段落")).toBe("普通段落");
+    });
+    it("空输入不抛", () => {
+        expect(taskTitleFromKramdown("")).toBe("");
     });
 });
