@@ -26,6 +26,7 @@ import { patchList, patchPriority, patchRange } from "./ui/panelActions";
 import { toDateStr } from "./model/date";
 import { ATTR } from "./model/attrs";
 import { splitTaskBlock } from "./model/body";
+import { createFollowScheduler, selectionIsInEditor } from "./ui/follow";
 import { toDateTimeStr } from "./model/date";
 import { cursorBlockId, taskBlockIdFromElement, type ProtyleLike } from "./api/dom";
 import type { KernelResponse } from "./api/blocks";
@@ -85,10 +86,23 @@ export default class TaskFlow extends Plugin {
             });
         }
 
-        // 光标在编辑器里移动时，面板跟着换任务
-        this.eventBus.on("click-editorcontent", () => {
+        // 光标在编辑器里移动时，面板跟着换任务。
+        //
+        // ⚠️ 真机验证发现：**点编辑器不会触发 `click-editorcontent`**
+        //    （点完面板纹丝不动，按 ⌥⇧D 显式刷新才更新），所以不能只靠它。
+        //    改用更可靠的组合：DOM 的 selectionchange（光标一动就发）
+        //    + 思源的 switch-protyle（切文档）。防抖见 ui/follow。
+        const follow = createFollowScheduler(() => {
+            const sel = window.getSelection();
+            const node = sel?.anchorNode ?? null;
+            if (!selectionIsInEditor(node)) {
+                return; // 在面板自己的输入框里选字，不该刷新
+            }
             this.panel?.refresh();
         });
+        document.addEventListener("selectionchange", () => follow.poke(), true);
+        this.eventBus.on("switch-protyle", () => follow.poke());
+        this.eventBus.on("click-editorcontent", () => follow.poke());
 
         // 块标菜单 →「任务 ▸」子菜单
         // ⚠️ 必须同步 addItem：事件返回后思源立刻渲染菜单，异步加的项不会出现。
