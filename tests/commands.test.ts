@@ -114,8 +114,9 @@ describe("T14/T15 完成状态", () => {
 });
 
 describe("命令表与快捷键（方向级验收）", () => {
-    it("10 个命令，热键全部落在 Alt+Shift 空间", () => {
-        expect(COMMANDS).toHaveLength(10);
+    it("11 个命令，热键全部落在 Alt+Shift 空间", () => {
+        // 10 个改属性的 + 1 个打开任务视图 Tab（⌥⇧T）
+        expect(COMMANDS).toHaveLength(11);
         for (const c of COMMANDS) {
             expect(c.hotkeys.length).toBeGreaterThan(0);
             for (const hk of c.hotkeys) {
@@ -129,6 +130,10 @@ describe("命令表与快捷键（方向级验收）", () => {
         expect(m.priorityMedium).toBe("\u2325\u21e72");
         expect(m.priorityLow).toBe("\u2325\u21e73");
         expect(m.priorityNone).toBe("\u2325\u21e70");
+    });
+    it("打开视图 Tab 用 ⌥⇧T（T 未被思源占用）", () => {
+        const m = Object.fromEntries(COMMANDS.map((c) => [c.langKey, c.hotkeys[0]]));
+        expect(m.openTaskTab).toBe("\u2325\u21e7T");
     });
     it("日期 Q/W/E/X + 面板 D + 完成 M（置顶留到 M2）", () => {
         const m = Object.fromEntries(COMMANDS.map((c) => [c.langKey, c.hotkeys[0]]));

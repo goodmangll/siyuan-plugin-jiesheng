@@ -15,7 +15,10 @@
  *   group2 = 标记本身
  *   group3 = 标题与后续内容
  */
-const TASK_LINE_RE = /^(-\s+(?:\{:[^}]*\}\s*)?)(\[ \]|\[[xX]\])/;
+// 前缀整段（含缩进）作为捕获组 1：嵌套任务的 markdown 带缩进，
+//   - 识别时要容忍缩进
+//   - 切换完成状态时要**原样保留**缩进，否则嵌套结构会被压平
+const TASK_LINE_RE = /^(\s*-\s+(?:\{:[^}]*\}\s*)?)(\[ \]|\[[xX]\])/;
 
 /** 首行是不是任务标记 */
 export function isTaskKramdown(kramdown: string | null | undefined): boolean {

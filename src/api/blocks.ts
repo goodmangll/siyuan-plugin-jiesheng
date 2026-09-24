@@ -24,6 +24,14 @@ export function setTransport(t: Transport): void {
     transport = t;
 }
 
+/**
+ * 统一的内核调用（走注入的 transport）。校验 code 并抛错 —— **不静默吞掉失败**。
+ * 对外暴露是因为「列笔记本」这类接口不属于 blocks，但该走同一套错误处理。
+ */
+export async function callKernel<T>(url: string, data?: Record<string, unknown>): Promise<T> {
+    return call<T>(url, data);
+}
+
 async function call<T>(url: string, data?: Record<string, unknown>): Promise<T> {
     const res = await transport(url, data);
     if (!res || typeof res.code !== "number") {
@@ -70,6 +78,11 @@ export interface BlockRow {
 }
 
 const SQL = "/api/query/sql";
+
+/** 直接跑 SQL。视图层要用它批量取数，所以对外暴露。 */
+export async function runSql<T = Record<string, unknown>>(stmt: string): Promise<T[]> {
+    return (await call<T[]>(SQL, { stmt })) ?? [];
+}
 
 async function sql<T = BlockRow>(stmt: string): Promise<T[]> {
     return (await call<T[]>(SQL, { stmt })) ?? [];
@@ -206,4 +219,38 @@ export async function getTaskTitle(id: string): Promise<string> {
 /** 删除块（进思源回收站，可恢复） */
 export async function deleteBlock(id: string): Promise<void> {
     await call<unknown>("/api/block/deleteBlock", { id });
+}
+
+/**
+ * 追加一个块，返回**新块的 id**（拿不到则 null）。
+ *
+ * 注意：用 markdown 追加 `- [ ] x` 时，返回的是外层**列表容器**（`l/t`）的 id，
+ * 任务项本身是它的子块。需要任务项 id 的调用方请用 `appendTaskItem`。
+ */
+export async function appendBlockReturningId(parentID: string, markdown: string): Promise<string | null> {
+    const d = await call<unknown>("/api/block/appendBlock", { parentID, dataType: "markdown", data: markdown });
+    const arr = Array.isArray(d) ? d : [];
+    for (const op of arr) {
+        const id = (op as { id?: string })?.id;
+        if (id) {
+            return id;
+        }
+    }
+    return null;
+}
+
+/**
+ * 在文档末尾新建一条任务，返回**任务项**（`i/t`）的 id。
+ *
+ * appendBlock 给的是列表容器 id，所以要再查一次它的任务项子块。
+ */
+export async function appendTaskItem(docId: string, title: string): Promise<string | null> {
+    const container = await appendBlockReturningId(docId, `- [ ] ${(title ?? "").trim()}`);
+    if (!container) {
+        return null;
+    }
+    const rows = await runSql<{ id: string }>(
+        `select id from blocks where parent_id='${container}' and type='i' and subtype='t' limit 1`,
+    );
+    return rows[0]?.id ?? null;
 }

@@ -31,6 +31,8 @@ export interface TaskCommandDeps {
     openPanel(id: string, focus?: string): void;
     /** 轻提示 */
     toast?(message: string): void;
+    /** 打开任务视图 Tab */
+    openTaskTab?(): void;
     /** 当前被整块选中的块数（用于 T18 的多选提示） */
     selectedBlockCount?(): number;
     /** 任务**刚变成完成**时回调（重复任务生成挂在这里） */
@@ -145,6 +147,11 @@ export async function toggleDone(deps: TaskCommandDeps): Promise<void> {
     }
 }
 
+/** 打开任务视图 Tab（今天/收件箱/看板/日历…） */
+export async function openTaskTab(deps: TaskCommandDeps): Promise<void> {
+    deps.openTaskTab?.();
+}
+
 /** 打开任务面板 */
 export async function openPanel(deps: TaskCommandDeps): Promise<void> {
     const id = await currentTaskBlockId(deps);
@@ -161,6 +168,7 @@ const HK = {
     p1: "\u2325\u21e71", p2: "\u2325\u21e72", p3: "\u2325\u21e73", p0: "\u2325\u21e70",
     today: "\u2325\u21e7Q", tomorrow: "\u2325\u21e7W", nextWeek: "\u2325\u21e7E", clearDue: "\u2325\u21e7X",
     panel: "\u2325\u21e7D", done: "\u2325\u21e7M",
+    taskTab: "\u2325\u21e7T",
 } as const;
 
 export const COMMANDS: TaskCommand[] = [
@@ -174,4 +182,5 @@ export const COMMANDS: TaskCommand[] = [
     { langKey: "dueClear", langText: "任务：清除日期", hotkeys: [HK.clearDue], run: clearDue },
     { langKey: "openPanel", langText: "任务：打开任务面板", hotkeys: [HK.panel], run: openPanel },
     { langKey: "toggleDone", langText: "任务：完成 / 取消完成", hotkeys: [HK.done], run: toggleDone },
+    { langKey: "openTaskTab", langText: "任务：打开任务视图（今天/看板/日历）", hotkeys: [HK.taskTab], run: openTaskTab },
 ];
