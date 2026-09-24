@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-    boardSql, calendarSql, countSql, listSql, openTasksWhere, smartListIds,
+    boardSql, calendarSql, countSql, listSql, listsSql, openTasksWhere, smartListIds,
 } from "../../src/views/query";
 
 const TODAY = "20260925";
@@ -113,5 +113,14 @@ describe("Q5 日历", () => {
     });
     it("日历也要算逾期的（否则月里看不到过期的）", () => {
         expect(calendarSql("20260901", "20261001")).toContain("markdown like '- [ ]%'");
+    });
+});
+
+describe("Q6 清单名列表（看板列要用）", () => {
+    it("只取非空的 custom-list，去重", () => {
+        const s = listsSql();
+        expect(s).toContain("distinct");
+        expect(s).toContain("name='custom-list'");
+        expect(s).toContain("value != ''");
     });
 });

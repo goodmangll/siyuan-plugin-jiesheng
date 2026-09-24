@@ -192,3 +192,46 @@ export function formatDue(task: ViewTask, today: string): string {
     if (diff < -1) return `${-diff} 天前`;
     return dayLabel(task.due ?? task.day);
 }
+
+/** 看板的另一种分组维度 */
+export type BoardGroupBy = "list" | "priority";
+
+const PRI_ORDER: Priority[] = ["high", "medium", "low", "none"];
+const PRI_LABEL: Record<Priority, string> = { high: "高", medium: "中", low: "低", none: "无" };
+
+/**
+ * 按优先级分组。**固定 4 列，空的也保留** —— 看板少一列会让人以为拖不过去。
+ */
+export function groupByPriority(tasks: ViewTask[]): TaskGroup[] {
+    return PRI_ORDER.map((p) => ({
+        key: p,
+        title: PRI_LABEL[p],
+        tasks: tasks.filter((t) => t.priority === p),
+    }));
+}
+
+/**
+ * 看图板的列：**已知清单 ∪ 任务里出现的清单**，收件箱永远在第一列。
+ *
+ * 只用"任务里出现的清单"是不够的 —— 那样一个还没放任务的清单根本不会出现，
+ * 用户就**没法把卡片拖进去**（真机踩到：整个看板只有 1 列，所有卡片全堆在收件箱）。
+ */
+export function listColumns(tasks: ViewTask[], knownLists: string[]): TaskGroup[] {
+    const seen = new Set<string>(knownLists);
+    for (const t of tasks) {
+        seen.add(t.list);
+    }
+    const keys = [...seen]
+        .filter((k) => k !== "")
+        .sort((a, b) => a.localeCompare(b, "zh"));
+    return ["", ...keys].map((key) => ({
+        key,
+        title: key === "" ? INBOX_TITLE : key,
+        tasks: tasks.filter((t) => t.list === key),
+    }));
+}
+
+/** 按看板当前的分组维度分组 */
+export function boardColumns(tasks: ViewTask[], knownLists: string[], by: BoardGroupBy): TaskGroup[] {
+    return by === "priority" ? groupByPriority(tasks) : listColumns(tasks, knownLists);
+}

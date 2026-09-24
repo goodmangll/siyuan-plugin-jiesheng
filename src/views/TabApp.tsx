@@ -11,6 +11,7 @@ import type { ViewHost, ViewId } from "./host";
 import { VIEW_TABS } from "./host";
 import type { ViewTask } from "./model";
 import { TaskList } from "./TaskList";
+import { Board } from "./Board";
 
 const EMPTY_COUNTS = { today: 0, tomorrow: 0, next7: 0, inbox: 0, all: 0 } as Record<SmartListId, number>;
 
@@ -87,6 +88,8 @@ export function TabApp({ host, initialView = "today" }: { host: ViewHost; initia
                     </div>
                 ) : isSmartList(view) ? (
                     <TaskList view={view} tasks={tasks} today={today} host={host} onChanged={onChanged} />
+                ) : view === "board" ? (
+                    <Board tasks={tasks} today={today} host={host} onChanged={onChanged} />
                 ) : (
                     <div style={{ padding: 24, fontSize: 13, opacity: 0.55 }}>
                         「{current?.label}」还在做。先看智能清单。

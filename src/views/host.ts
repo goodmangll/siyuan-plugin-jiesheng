@@ -32,6 +32,8 @@ export interface ViewHost {
     load(view: ViewId, today: string): Promise<ViewTask[]>;
     /** 侧边栏计数 */
     counts(today: string): Promise<Record<SmartListId, number>>;
+    /** 所有用过的清单名（看板列要用：没任务的清单也得能出现，否则拖不进去） */
+    lists(): Promise<string[]>;
     /** 勾选完成 / 取消完成（内部会处理重复任务生成） */
     toggleDone(id: string): Promise<void>;
     /** 在文档里定位到这个块 */
@@ -42,6 +44,8 @@ export interface ViewHost {
     setDue(id: string, due: string | null): Promise<void>;
     /** 改优先级 */
     setPriority(id: string, priority: Priority): Promise<void>;
+    /** 改清单名；空串 = 移出清单（收件箱） */
+    setList(id: string, list: string): Promise<void>;
     /** 新建任务 */
     createTask(title: string, due: string | null): Promise<void>;
     /** 外部变动（思源里改了东西）时通知视图刷新；返回取消订阅 */
