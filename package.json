@@ -7,11 +7,13 @@
   "scripts": {
     "dev": "vite build --watch",
     "build": "tsc --noEmit && vite build",
-    "test": "vitest run",
+    "test": "vitest run --exclude 'tests/integration/**'",
     "test:watch": "vitest",
-    "link": "node scripts/link.mjs"
+    "link": "node scripts/link.mjs",
+    "test:int": "vitest run tests/integration"
   },
   "devDependencies": {
+    "@types/node": "^26.6.2",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
