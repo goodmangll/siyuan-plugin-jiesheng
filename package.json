@@ -6,11 +6,13 @@
   "type": "module",
   "scripts": {
     "dev": "vite build --watch",
-    "build": "tsc --noEmit && vite build && node scripts/link.mjs",
+    "build": "tsc --noEmit && pnpm build:ui && pnpm build:kernel && node scripts/link.mjs",
     "test": "vitest run --exclude 'tests/integration/**'",
     "test:watch": "vitest",
     "link": "node scripts/link.mjs",
-    "test:int": "vitest run tests/integration"
+    "test:int": "vitest run tests/integration",
+    "build:ui": "vite build",
+    "build:kernel": "vite build --config vite.kernel.config.ts"
   },
   "devDependencies": {
     "@types/node": "^26.6.2",
