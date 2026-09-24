@@ -33,6 +33,8 @@ export interface TaskCommandDeps {
     toast?(message: string): void;
     /** 打开任务视图 Tab */
     openTaskTab?(): void;
+    /** 切换置顶 */
+    togglePin?(id: string, attrs: Record<string, string>): Promise<void>;
     /** 当前被整块选中的块数（用于 T18 的多选提示） */
     selectedBlockCount?(): number;
     /** 任务**刚变成完成**时回调（重复任务生成挂在这里） */
@@ -147,6 +149,21 @@ export async function toggleDone(deps: TaskCommandDeps): Promise<void> {
     }
 }
 
+/**
+ * 置顶 / 取消置顶。
+ *
+ * ★ 不用 `moveBlock` 去挪文档顺序：实测那套 API 在同层重排上**不可靠**，
+ *   而且有一次确定的**块销毁**记录（非确定性）。视图的排序本来就是我们控制的，
+ *   所以置顶就用一个属性 + 排序键 —— 语义准确、行为确定。
+ */
+export async function togglePin(deps: TaskCommandDeps): Promise<void> {
+    await withTask(deps, async (id, attrs) => {
+        const pinned = (attrs[ATTR.pin] ?? "").trim() !== "";
+        await deps.writeAttrs(id, { [ATTR.pin]: pinned ? "" : "1" });
+        deps.toast?.(pinned ? "已取消置顶" : "已置顶");
+    });
+}
+
 /** 打开任务视图 Tab（今天/收件箱/看板/日历…） */
 export async function openTaskTab(deps: TaskCommandDeps): Promise<void> {
     deps.openTaskTab?.();
@@ -169,6 +186,7 @@ const HK = {
     today: "\u2325\u21e7Q", tomorrow: "\u2325\u21e7W", nextWeek: "\u2325\u21e7E", clearDue: "\u2325\u21e7X",
     panel: "\u2325\u21e7D", done: "\u2325\u21e7M",
     taskTab: "\u2325\u21e7T",
+    pin: "\u2325\u21e7U",
 } as const;
 
 export const COMMANDS: TaskCommand[] = [
@@ -183,4 +201,5 @@ export const COMMANDS: TaskCommand[] = [
     { langKey: "openPanel", langText: "任务：打开任务面板", hotkeys: [HK.panel], run: openPanel },
     { langKey: "toggleDone", langText: "任务：完成 / 取消完成", hotkeys: [HK.done], run: toggleDone },
     { langKey: "openTaskTab", langText: "任务：打开任务视图（今天/看板/日历）", hotkeys: [HK.taskTab], run: openTaskTab },
+    { langKey: "togglePin", langText: "任务：置顶 / 取消置顶", hotkeys: [HK.pin], run: togglePin },
 ];
