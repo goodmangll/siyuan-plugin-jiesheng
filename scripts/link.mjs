@@ -25,6 +25,9 @@ for (const f of ["plugin.json", "icon.png", "README.md", "README.zh_CN.md"]) {
     cpSync(join(root, f), join(dest, f));
 }
 cpSync(join(root, "dist/index.js"), join(dest, "index.js"));
+if (existsSync(join(root, "dist/kernel.js"))) {
+    cpSync(join(root, "dist/kernel.js"), join(dest, "kernel.js"));
+}
 cpSync(join(root, "i18n"), join(dest, "i18n"), { recursive: true });
 
 console.log("已同步到", dest);
