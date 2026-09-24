@@ -29,7 +29,8 @@ import { splitTaskBlock } from "./model/body";
 import { createFollowScheduler, selectionIsInEditor } from "./ui/follow";
 import { runReminderScan } from "./ui/reminderRunner";
 import { DEFAULT_SETTINGS, type TaskFlowSettings } from "./settings";
-import { loadSettings } from "./api/settings";
+import { loadSettings, saveSettings } from "./api/settings";
+import { openSettingsDialog } from "./ui/settingsDialog";
 import { toDateTimeStr } from "./model/date";
 import { cursorBlockId, taskBlockIdFromElement, type ProtyleLike } from "./api/dom";
 import type { KernelResponse } from "./api/blocks";
@@ -390,6 +391,21 @@ export default class TaskFlow extends Plugin {
         }
     }
 
+    /**
+     * 设置入口 —— 思源会在插件列表里显示一个齿轮，点它就调这里。
+     * 用原生 Setting 类，和内置插件的设置长得一样。
+     */
+    openSetting(): void {
+        void openSettingsDialog({
+            load: () => loadSettings(),
+            save: async (s) => {
+                await saveSettings(s);
+                this.settings = s;   // 立刻生效，不用重启
+            },
+            toast: (m: string) => showMessage(m, 3000),
+        });
+    }
+
     /** 读一次设置（前端启动时调） */
     private async loadSettingsOnce(): Promise<void> {
         this.settings = await loadSettings();
@@ -682,6 +698,7 @@ export default class TaskFlow extends Plugin {
             readKramdown: (id) => getBlockKramdown(id),
             writeKramdown: (id, md) => updateBlockMarkdown(id, md),
             openTaskTab: () => this.openTaskTab(),
+            openSettings: () => this.openSetting(),
             togglePin: async (id: string, attrs: Record<string, string>) => {
                 const pinned = (attrs[ATTR.pin] ?? "").trim() !== "";
                 const next = pinned ? "" : "1";
