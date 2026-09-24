@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
-    COMMANDS, clearDue, currentTaskBlockId, openPanel, setPriority, setDueTo, toggleDone,
+    COMMANDS, clearDue, currentTaskBlockId, openPanel, setPriority, setDueTo, toggleDone, togglePin,
     type TaskCommandDeps,
 } from "../src/commands";
 import { ATTR } from "../src/model/attrs";
@@ -114,9 +114,9 @@ describe("T14/T15 完成状态", () => {
 });
 
 describe("命令表与快捷键（方向级验收）", () => {
-    it("11 个命令，热键全部落在 Alt+Shift 空间", () => {
-        // 10 个改属性的 + 1 个打开任务视图 Tab（⌥⇧T）
-        expect(COMMANDS).toHaveLength(11);
+    it("12 个命令，热键全部落在 Alt+Shift 空间", () => {
+        // 10 个改属性的 + 打开任务视图 Tab（⌥⇧T）+ 置顶（⌥⇧U）
+        expect(COMMANDS).toHaveLength(12);
         for (const c of COMMANDS) {
             expect(c.hotkeys.length).toBeGreaterThan(0);
             for (const hk of c.hotkeys) {
@@ -238,5 +238,29 @@ describe("T18 多块选中：只作用于光标那一个，但要明说", () => 
         await setPriority(deps, "high");
         expect(toasts.some((t) => t.includes("多个块"))).toBe(false);
         delete deps.selectedBlockCount;
+    });
+});
+
+describe("T23 置顶：用 custom-pin 属性 + 视图排序，不用 moveBlock", () => {
+    it("未置顶 → 置顶", async () => {
+        store.TASK = {};
+        await togglePin(deps);
+        expect(writes[0].patch[ATTR.pin]).toBe("1");
+        expect(toasts.some((t) => t.includes("已置顶"))).toBe(true);
+    });
+    it("已置顶 → 取消（写空串即删除属性）", async () => {
+        store.TASK = { [ATTR.pin]: "1" };
+        await togglePin(deps);
+        expect(writes[0].patch[ATTR.pin]).toBe("");
+        expect(toasts.some((t) => t.includes("取消置顶"))).toBe(true);
+    });
+    it("空串也算未置顶", async () => {
+        store.TASK = { [ATTR.pin]: "" };
+        await togglePin(deps);
+        expect(writes[0].patch[ATTR.pin]).toBe("1");
+    });
+    it("⌥⇧U 未被思源占用，落在 Alt+Shift 空间", () => {
+        const m = Object.fromEntries(COMMANDS.map((c) => [c.langKey, c.hotkeys[0]]));
+        expect(m.togglePin).toBe("\u2325\u21e7U");
     });
 });

@@ -79,41 +79,62 @@ export function buildTree<T extends TreeInput>(
 
     const collapsed = collapsedIds ?? new Set<string>();
 
-    // 直属子任务计数：看每个节点的父路径下有几个节点
+    // 按父路径分桶，**桶内保持传入顺序** —— 传入顺序就是 SQL 的排序
+    // （置顶 → 优先级 → 截止日），这个顺序**不能**被树的遍历打乱。
+    //
+    // 曾经这里是「按路径全局排序」，结果 custom-pin 的排序完全失效：
+    // 真机实测置顶的任务在 SQL 里排第 1，视图里却不在第一位。
+    const byParent = new Map<string, T[]>();
+    const paths = new Set(list.map((t) => norm(t.path)));
+    for (const t of list) {
+        const pp = parentPathOf(t.path);
+        const arr = byParent.get(pp);
+        if (arr) {
+            arr.push(t);
+        } else {
+            byParent.set(pp, [t]);
+        }
+    }
+
+    // 直属子任务数
     const childCount = new Map<string, number>();
     for (const t of list) {
         const pp = parentPathOf(t.path);
         childCount.set(pp, (childCount.get(pp) ?? 0) + 1);
     }
 
-    const key = (p: string): string => norm(p);
-    const ordered = [...list].sort((a, b) => {
-        const ka = key(a.path);
-        const kb = key(b.path);
-        return ka < kb ? -1 : ka > kb ? 1 : 0;
-    });
-
     const out: TreeNode<T>[] = [];
-    // 折叠时要知道"当前处于哪个被折叠节点的子树里"
-    const hiddenPrefixes: string[] = [];
+    const emit = (parent: string, ancestors: Set<string>): void => {
+        for (const t of byParent.get(parent) ?? []) {
+            const p = norm(t.path);
+            const isCollapsed = collapsed.has(t.id);
+            out.push({
+                task: t,
+                depth: depthOf(p),
+                parentPath: parent,
+                childCount: childCount.get(p) ?? 0,
+                collapsed: isCollapsed,
+            });
+            // 折叠 → 不再往下走；ancestors 兼作防御，路径异常时不会死循环
+            if (!isCollapsed && !ancestors.has(p)) {
+                ancestors.add(p);
+                emit(p, ancestors);
+                ancestors.delete(p);
+            }
+        }
+    };
 
-    for (const t of ordered) {
-        const p = norm(t.path);
-        // 落在某个被折叠的子树里 → 跳过
-        if (hiddenPrefixes.some((pre) => p !== pre && p.startsWith(pre + "/"))) {
-            continue;
+    // 根：父路径不在结果集里（顶层文档，或父任务不在本次筛选结果中）
+    const roots = new Set<string>();
+    for (const t of list) {
+        const pp = parentPathOf(t.path);
+        if (!paths.has(pp)) {
+            roots.add(pp);
         }
-        const isCollapsed = collapsed.has(t.id);
-        if (isCollapsed) {
-            hiddenPrefixes.push(p);
-        }
-        out.push({
-            task: t,
-            depth: depthOf(p),
-            parentPath: parentPathOf(p),
-            childCount: childCount.get(p) ?? 0,
-            collapsed: isCollapsed,
-        });
+    }
+    // 根之间按路径排序（没有任何排序信息可用时的稳定兜底）
+    for (const r of [...roots].sort()) {
+        emit(r, new Set());
     }
     return out;
 }

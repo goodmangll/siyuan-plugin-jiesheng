@@ -526,6 +526,12 @@ export default class TaskFlow extends Plugin {
             readKramdown: (id) => getBlockKramdown(id),
             writeKramdown: (id, md) => updateBlockMarkdown(id, md),
             openTaskTab: () => this.openTaskTab(),
+            togglePin: async (id: string, attrs: Record<string, string>) => {
+                const pinned = (attrs[ATTR.pin] ?? "").trim() !== "";
+                const next = pinned ? "" : "1";
+                await setAttrsAndWait(id, { [ATTR.pin]: next }, ATTR.pin, next);
+                showMessage(next ? "已置顶" : "已取消置顶", 2000);
+            },
             // ⌥⇧D 走的是这一条（块标菜单走 buildBlockMenuDeps 的那条）。
             // 这里曾经写成 `openPanel: () => {…}`，连参数都不收 ——
             // 所以命令层传下来的 focus 在插件这一层就被丢了，面板永远不聚焦。

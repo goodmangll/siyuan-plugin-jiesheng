@@ -45,13 +45,23 @@ describe("T2 还原成树（父在前、子紧随、带深度）", () => {
         expect(tree.map((n) => n.task.id)).toEqual(["C"]);
         expect(tree[0].depth).toBe(2);
     });
-    it("孤儿按路径插到正确位置（按路径字典序）", () => {
+    it("同层保持**传入顺序**，不按路径重排", () => {
+        // 传入顺序就是 SQL 的排序（置顶 → 优先级 → 截止日）
         const tree = buildTree([t("D", "/z"), t("A", "/a"), t("B", "/a/b")]);
-        expect(tree.map((n) => n.task.id)).toEqual(["A", "B", "D"]);
+        expect(tree.map((n) => n.task.id)).toEqual(["D", "A", "B"]);
     });
-    it("同一父下的兄弟顺序稳定（同路径按传入顺序）", () => {
-        const tree = buildTree([t("X", "/a"), t("Y", "/a")]);
-        expect(tree.map((n) => n.task.id)).toEqual(["X", "Y"]);
+    it("**置顶/优先级的顺序不能被树冲掉**（真机踩到：SQL 排第 1，视图里却不在第一位）", () => {
+        // 传入顺序 = [置顶的, 高优先级, 低优先级]，三者都是顶层
+        const tree = buildTree([t("PIN", "/pinned"), t("HIGH", "/high"), t("LOW", "/low")]);
+        expect(tree.map((n) => n.task.id)).toEqual(["PIN", "HIGH", "LOW"]);
+    });
+    it("同层顺序保持，同时子树仍紧跟在父后面", () => {
+        const tree = buildTree([
+            t("B", "/a/b"), t("A", "/a"), t("C", "/a/c"), t("D", "/d"),
+        ]);
+        // 桶内顺序：根层 [A, D]（A 先传入？不 —— B 先传入但 B 不是根）
+        // A 是根，D 是根；A 的子树 B、C 紧随 A
+        expect(tree.map((n) => n.task.id)).toEqual(["A", "B", "C", "D"]);
     });
     it("空输入 → 空数组", () => {
         expect(buildTree([])).toEqual([]);
