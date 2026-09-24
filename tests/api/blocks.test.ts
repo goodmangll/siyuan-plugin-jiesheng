@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
-    firstInnerParagraph, getTaskAttrs, isSubtaskBlock, isTaskBlock,
+    firstInnerParagraph, getTaskAttrs, isSubtaskBlock, isTaskBlock, resolveTaskBlock,
     setBlockAttrs, setTransport, type KernelResponse,
 } from "../../src/api/blocks";
 
@@ -128,5 +128,46 @@ describe("SQL 只读约束", () => {
         for (const c of calls.filter((c) => c.url === "/api/query/sql")) {
             expect(String(c.data!.stmt).trim().toLowerCase()).toMatch(/^select/);
         }
+    });
+});
+
+describe("任务块归一化（光标常落在段落块上）", () => {
+    it("本身就是任务项 → 原样返回", async () => {
+        install((url) => (url === "/api/query/sql" ? ok([{ id: "T", type: "i", subtype: "t", parent_id: "L" }]) : ok(null)));
+        expect(await resolveTaskBlock("T")).toBe("T");
+    });
+    it("段落块 → 向上找到所属任务项", async () => {
+        install((url, d) => {
+            if (url !== "/api/query/sql") return ok(null);
+            const stmt = String(d!.stmt);
+            if (stmt.includes("id='P'")) return ok([{ id: "P", type: "p", subtype: "", parent_id: "T" }]);
+            if (stmt.includes("id='T'")) return ok([{ id: "T", type: "i", subtype: "t", parent_id: "L" }]);
+            return ok([]);
+        });
+        expect(await resolveTaskBlock("P")).toBe("T");
+    });
+    it("子任务的段落块 → 找到子任务项，不会跑到父任务", async () => {
+        install((url, d) => {
+            if (url !== "/api/query/sql") return ok(null);
+            const stmt = String(d!.stmt);
+            if (stmt.includes("id='SP'")) return ok([{ id: "SP", type: "p", subtype: "", parent_id: "SI" }]);
+            if (stmt.includes("id='SI'")) return ok([{ id: "SI", type: "i", subtype: "t", parent_id: "SL" }]);
+            return ok([]);
+        });
+        expect(await resolveTaskBlock("SP")).toBe("SI");
+    });
+    it("普通段落（不在任务里）→ null", async () => {
+        install((url, d) => {
+            if (url !== "/api/query/sql") return ok(null);
+            const stmt = String(d!.stmt);
+            if (stmt.includes("id='P'")) return ok([{ id: "P", type: "p", subtype: "", parent_id: "D" }]);
+            if (stmt.includes("id='D'")) return ok([{ id: "D", type: "d", subtype: "", parent_id: "" }]);
+            return ok([]);
+        });
+        expect(await resolveTaskBlock("P")).toBeNull();
+    });
+    it("块不存在 → null，不抛", async () => {
+        install((url) => (url === "/api/query/sql" ? ok([]) : ok(null)));
+        expect(await resolveTaskBlock("NOPE")).toBeNull();
     });
 });

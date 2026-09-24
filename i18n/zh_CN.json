@@ -1,1 +1,12 @@
-{"_":{"unused":"placeholder"}}
+{
+  "priorityHigh": "优先级 高",
+  "priorityMedium": "优先级 中",
+  "priorityLow": "优先级 低",
+  "priorityNone": "清除优先级",
+  "dueToday": "设为今天",
+  "dueTomorrow": "设为明天",
+  "dueNextWeek": "设为下周同一天",
+  "dueClear": "清除日期",
+  "openPanel": "打开任务面板",
+  "toggleDone": "完成 / 取消完成"
+}

@@ -1,1 +1,12 @@
-{"_":{"unused":"placeholder"}}
+{
+  "priorityHigh": "Priority: High",
+  "priorityMedium": "Priority: Medium",
+  "priorityLow": "Priority: Low",
+  "priorityNone": "Clear priority",
+  "dueToday": "Set due: today",
+  "dueTomorrow": "Set due: tomorrow",
+  "dueNextWeek": "Set due: next week",
+  "dueClear": "Clear due date",
+  "openPanel": "Open task panel",
+  "toggleDone": "Toggle done"
+}
