@@ -158,3 +158,8 @@ export async function resolveTaskBlock(id: string, maxUp = 3): Promise<string | 
     }
     return cur.type === "i" && cur.subtype === "t" ? cur.id : null;
 }
+
+/** 在某个块下面追加内容（Dock 面板加子任务用） */
+export async function appendBlock(parentID: string, markdown: string): Promise<void> {
+    await call<unknown>("/api/block/appendBlock", { parentID, dataType: "markdown", data: markdown });
+}
