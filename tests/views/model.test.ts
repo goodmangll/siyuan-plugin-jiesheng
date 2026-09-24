@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
-    formatDue, groupByDay, groupByList, matrixCell, toViewTask, toViewTasks, type TaskRow,
+    boardColumns, formatDue, groupByDay, groupByList, groupByPriority, listColumns, matrixCell,
+    toViewTask, toViewTasks,
+    type TaskRow,
 } from "../../src/views/model";
 
 const TODAY = "20260925";
@@ -196,5 +198,48 @@ describe("M8 截止日的显示（边界最容易错，单测钉住）", () => {
     });
     it("未来日期带时刻也显示时刻", () => {
         expect(formatDue(at("202610011430"), TODAY)).toBe("10-01 14:30");
+    });
+});
+
+describe("M9 按优先级分组（看板的另一种列）", () => {
+    const mk = (pri: string | null) => toViewTask(row({ pri, due: null }), TODAY);
+    it("固定顺序 高→中→低→无，空列也保留", () => {
+        const g = groupByPriority([mk("3"), mk("1")]);
+        expect(g.map((x) => x.key)).toEqual(["high", "medium", "low", "none"]);
+        expect(g[0].tasks).toHaveLength(1);
+        expect(g[1].tasks).toHaveLength(0); // 中等没有任务，列也要在
+        expect(g[2].tasks).toHaveLength(1);
+    });
+    it("列标题是中文", () => {
+        expect(groupByPriority([]).map((x) => x.title)).toEqual(["高", "中", "低", "无"]);
+    });
+    it("空输入 → 仍是 4 个空列（看板不该塌掉）", () => {
+        expect(groupByPriority([])).toHaveLength(4);
+    });
+});
+
+describe("M10 看板的列：已知清单 ∪ 任务里的清单（否则没任务的清单没法拖进去）", () => {
+    const mk = (list: string) => toViewTask(row({ lst: list, due: null }), TODAY);
+    it("空清单永远在第一列，且标题是「收件箱」", () => {
+        const cols = listColumns([mk("工作")], []);
+        expect(cols[0].key).toBe("");
+        expect(cols[0].title).toBe("收件箱");
+    });
+    it("**已知但没有任务的清单也要出现**（真机踩到：只有 1 列，没法拖）", () => {
+        const cols = listColumns([], ["工作", "生活"]);
+        expect(cols.map((c) => c.key)).toEqual(["", "工作", "生活"]);
+        expect(cols[1].tasks).toEqual([]);
+    });
+    it("两者取并集，不重复", () => {
+        const cols = listColumns([mk("工作"), mk("财务")], ["工作", "生活"]);
+        expect(cols.map((c) => c.key)).toEqual(["", "工作", "生活", "财务"].sort((a, b) => (a === "" ? -1 : b === "" ? 1 : a.localeCompare(b, "zh"))));
+    });
+    it("空串混进已知清单也不会产生两个收件箱", () => {
+        const cols = listColumns([], ["", "工作"]);
+        expect(cols.filter((c) => c.key === "")).toHaveLength(1);
+    });
+    it("boardColumns 按维度分流", () => {
+        expect(boardColumns([mk("工作")], [], "list").map((c) => c.key)).toEqual(["", "工作"]);
+        expect(boardColumns([], [], "priority")).toHaveLength(4);
     });
 });

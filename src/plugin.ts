@@ -13,10 +13,10 @@ import { countSelectedBlocks } from "./api/dom";
 import { createTaskIn, ensureInboxDoc, setAttrsAndWait } from "./api/views";
 import { runSql } from "./api/blocks";
 import { mountTab, type TabHandle } from "./views/mountTab";
-import { boardSql, countSql, listSql, smartListIds, type SmartListId } from "./views/query";
+import { boardSql, countSql, listSql, listsSql, smartListIds, type SmartListId } from "./views/query";
 import { toViewTasks, type TaskRow } from "./views/model";
 import type { ViewHost, ViewId } from "./views/host";
-import { patchPriority, patchRange } from "./ui/panelActions";
+import { patchList, patchPriority, patchRange } from "./ui/panelActions";
 import { toDateStr } from "./model/date";
 import { ATTR } from "./model/attrs";
 import { cursorBlockId, taskBlockIdFromElement, type ProtyleLike } from "./api/dom";
@@ -193,6 +193,11 @@ export default class TaskFlow extends Plugin {
                 return Object.fromEntries(pairs) as Record<SmartListId, number>;
             },
 
+            lists: async () => {
+                const rows = await runSql<{ name: string }>(listsSql());
+                return rows.map((r) => r.name).filter(Boolean);
+            },
+
             toggleDone: (id: string) => this.toggleDone(id),
 
             openBlock: (id: string) => this.openBlock(id),
@@ -214,6 +219,11 @@ export default class TaskFlow extends Plugin {
 
             setPriority: async (id: string, priority) => {
                 await setAttrsAndWait(id, patchPriority(priority), ATTR.pri, patchPriority(priority)[ATTR.pri]);
+            },
+
+            setList: async (id: string, list: string) => {
+                // 空串 = 移出清单（收件箱）。toAttrPatch 里空串即等于删除该属性。
+                await setAttrsAndWait(id, patchList(list), ATTR.list, list);
             },
 
             createTask: async (title: string, due: string | null) => {
@@ -313,6 +323,11 @@ export default class TaskFlow extends Plugin {
                 this.pendingFocus = null;
                 return f;
             },
+            lists: async () => {
+                const rows = await runSql<{ name: string }>(listsSql());
+                return rows.map((r) => r.name).filter(Boolean);
+            },
+
             toggleDone: (id: string) => this.toggleDone(id),
             isDone: async (id: string) => isDone(await getBlockKramdown(id)),
             toast: (m: string) => showMessage(m, 3000),

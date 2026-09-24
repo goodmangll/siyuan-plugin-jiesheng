@@ -142,3 +142,15 @@ where ${openTasksWhere()}
 ${orderBy()}
 limit ${limit}`;
 }
+
+/**
+ * 所有用过的清单名（含已完成任务上的）。
+ *
+ * 看板要用它才能列出「还没有任务的清单」—— 否则用户没法把卡片拖进一个新清单。
+ * 只看未完成任务是不够的：一个清单的任务全做完了，列就会消失。
+ */
+export function listsSql(): string {
+    return `select distinct value as name from attributes
+where name='custom-list' and value is not null and value != ''
+order by value`;
+}
