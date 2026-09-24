@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-    boardSql, calendarSql, countSql, listSql, listsSql, openTasksWhere, smartListIds,
+    boardSql, calendarSql, countSql, listSql, listsSql, openTasksWhere, smartListIds, sqlForView,
 } from "../../src/views/query";
 
 const TODAY = "20260925";
@@ -122,5 +122,34 @@ describe("Q6 清单名列表（看板列要用）", () => {
         expect(s).toContain("distinct");
         expect(s).toContain("name='custom-list'");
         expect(s).toContain("value != ''");
+    });
+});
+
+describe("Q7 视图 → SQL 的分发（**曾经漏了 calendar/matrix，真机上直接报错**）", () => {
+    it("5 个智能清单各自走自己的 SQL", () => {
+        for (const id of smartListIds()) {
+            expect(sqlForView(id, TODAY)).toContain("from blocks b");
+        }
+        expect(sqlForView("inbox", TODAY)).toContain("is null");
+    });
+    it("看板走 boardSql", () => {
+        expect(sqlForView("board", TODAY)).toContain("coalesce");
+    });
+    it("日历与四象限走「全部未完成」（它们在组件里自己按日期/象限分组）", () => {
+        for (const v of ["calendar", "matrix", "stats"]) {
+            const s = sqlForView(v, TODAY);
+            expect(s).toContain("from blocks b");
+            expect(s).toContain("not exists");
+            // 「全部」不加日期条件
+            expect(s).not.toMatch(/like '20\d{6}%'/);
+        }
+    });
+    it("**每个视图 id 都必须能出 SQL，一个都不许漏**（这就是真机那个 bug）", () => {
+        for (const v of ["today", "tomorrow", "next7", "inbox", "all", "board", "calendar", "matrix", "stats"]) {
+            expect(() => sqlForView(v, TODAY), `${v} 出不了 SQL`).not.toThrow();
+        }
+    });
+    it("未知视图仍然抛错，不静默返回全表", () => {
+        expect(() => sqlForView("banana", TODAY)).toThrow();
     });
 });

@@ -34,6 +34,8 @@ export interface ViewHost {
     counts(today: string): Promise<Record<SmartListId, number>>;
     /** 所有用过的清单名（看板列要用：没任务的清单也得能出现，否则拖不进去） */
     lists(): Promise<string[]>;
+    /** 取一个日期区间内的任务（日历用），起含止不含 */
+    loadRange(from: string, to: string): Promise<ViewTask[]>;
     /** 勾选完成 / 取消完成（内部会处理重复任务生成） */
     toggleDone(id: string): Promise<void>;
     /** 在文档里定位到这个块 */
