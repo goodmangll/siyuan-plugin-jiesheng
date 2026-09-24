@@ -114,15 +114,18 @@ describe("T14/T15 完成状态", () => {
 });
 
 describe("命令表与快捷键（方向级验收）", () => {
-    it("12 个命令，热键全部落在 Alt+Shift 空间", () => {
-        // 10 个改属性的 + 打开任务视图 Tab（⌥⇧T）+ 置顶（⌥⇧U）
-        expect(COMMANDS).toHaveLength(12);
+    it("13 个命令；占热键的必须全部落在 Alt+Shift 空间", () => {
+        // 10 个改属性的 + 打开任务视图 Tab（⌥⇧T）+ 置顶（⌥⇧U）+ 打开设置（不占热键）
+        expect(COMMANDS).toHaveLength(13);
         for (const c of COMMANDS) {
-            expect(c.hotkeys.length).toBeGreaterThan(0);
             for (const hk of c.hotkeys) {
                 expect(hk.startsWith("\u2325\u21e7")).toBe(true); // ⌥⇧
             }
         }
+    });
+    it("只有一个命令不占热键（打开设置：思源插件列表里本来就有齿轮入口）", () => {
+        const noKey = COMMANDS.filter((c) => c.hotkeys.length === 0);
+        expect(noKey.map((c) => c.langKey)).toEqual(["openSettings"]);
     });
     it("优先级 1/2/3/0", () => {
         const m = Object.fromEntries(COMMANDS.map((c) => [c.langKey, c.hotkeys[0]]));

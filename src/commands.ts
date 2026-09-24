@@ -35,6 +35,8 @@ export interface TaskCommandDeps {
     openTaskTab?(): void;
     /** 切换置顶 */
     togglePin?(id: string, attrs: Record<string, string>): Promise<void>;
+    /** 打开插件设置 */
+    openSettings?(): void;
     /** 当前被整块选中的块数（用于 T18 的多选提示） */
     selectedBlockCount?(): number;
     /** 任务**刚变成完成**时回调（重复任务生成挂在这里） */
@@ -149,6 +151,11 @@ export async function toggleDone(deps: TaskCommandDeps): Promise<void> {
     }
 }
 
+/** 打开设置 */
+export async function openSettings(deps: TaskCommandDeps): Promise<void> {
+    deps.openSettings?.();
+}
+
 /**
  * 置顶 / 取消置顶。
  *
@@ -202,4 +209,6 @@ export const COMMANDS: TaskCommand[] = [
     { langKey: "toggleDone", langText: "任务：完成 / 取消完成", hotkeys: [HK.done], run: toggleDone },
     { langKey: "openTaskTab", langText: "任务：打开任务视图（今天/看板/日历）", hotkeys: [HK.taskTab], run: openTaskTab },
     { langKey: "togglePin", langText: "任务：置顶 / 取消置顶", hotkeys: [HK.pin], run: togglePin },
+    // 不占快捷键：设置不常用，而且思源插件列表里本来就有齿轮入口
+    { langKey: "openSettings", langText: "任务：打开提醒设置", hotkeys: [], run: openSettings },
 ];
