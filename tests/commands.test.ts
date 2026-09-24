@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
-    COMMANDS, clearDue, currentTaskBlockId, setPriority, setDueTo, toggleDone,
+    COMMANDS, clearDue, currentTaskBlockId, openPanel, setPriority, setDueTo, toggleDone,
     type TaskCommandDeps,
 } from "../src/commands";
+import { ATTR } from "../src/model/attrs";
 
 const NOW = new Date(2026, 8, 25, 10, 0); // 2026-09-25 周五
 
@@ -176,5 +177,42 @@ describe("T21-T23 完成时触发重复生成钩子", () => {
         expect(krWrites).toHaveLength(1);
         expect(krWrites[0].md).toBe("- [X] 标题");
         delete deps.onCompleted;
+    });
+});
+
+describe("T8 ⌥⇧D 要请求把焦点给日期区", () => {
+    it("打开面板时带上 focus='due'（之前 focus 参数被整个丢掉了）", async () => {
+        const seen: (string | undefined)[] = [];
+        deps.openPanel = (_id: string, focus?: string) => { seen.push(focus); };
+        kramdown["TASK"] = "- [ ] 标题";
+        await openPanel(deps);
+        expect(seen).toEqual(["due"]);
+    });
+});
+
+describe("T13 快捷键改日期也要让提醒同步重算（面板路径早已支持，快捷键路径漏了）", () => {
+    it("⌥⇧W：due 9/25 → 9/26，提醒 9/24 09:00 → 9/25 09:00", async () => {
+        store.TASK = { [ATTR.due]: "20260925", [ATTR.remind]: "202609240900" };
+        await setDueTo(deps, "tomorrow");
+        expect(writes).toHaveLength(1);
+        expect(writes[0].patch[ATTR.due]).toBe("20260926");
+        expect(writes[0].patch[ATTR.remind]).toBe("202609250900");
+    });
+    it("⌥⇧Q：全天进全天出，提醒按天平移", async () => {
+        store.TASK = { [ATTR.due]: "20261001", [ATTR.remind]: "202609300900" };
+        await setDueTo(deps, "today");
+        expect(writes[0].patch[ATTR.due]).toBe("20260925");
+        expect(writes[0].patch[ATTR.remind]).toBe("202609240900");
+    });
+    it("没有提醒时不多写 remind 键", async () => {
+        store.TASK = { [ATTR.due]: "20260925" };
+        await setDueTo(deps, "tomorrow");
+        expect(writes[0].patch).not.toHaveProperty(ATTR.remind);
+    });
+    it("⌥⇧X 清除日期：due 与提醒一起清（提醒指向不存在的日期没有意义）", async () => {
+        store.TASK = { [ATTR.due]: "20260925", [ATTR.remind]: "202609240900" };
+        await clearDue(deps);
+        expect(writes[0].patch[ATTR.due]).toBe("");
+        expect(writes[0].patch[ATTR.remind]).toBe("");
     });
 });

@@ -17,50 +17,18 @@ export type Attrs = Record<string, string>;
 export { shiftReminders } from "../model/remind";
 export type Patch = Record<string, string>;
 
-// ── 日期 ─────────────────────────────────────────────────────────────────────
-
-export type DueKind = "today" | "tomorrow" | "dayAfter" | "clear";
 
 /**
- * 日期补丁。**保留原来的形态**：全天进全天出，有时刻进有时刻出。
- * 若原本有提醒，会按 due 的变化量一起平移（见 `shiftReminders`）。
- */
-export function patchDue(attrs: Attrs, kind: DueKind, now: Date): Patch {
-    const old = attrs[ATTR.due];
-    const base = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const target = kind === "today" ? base
-        : kind === "tomorrow" ? addDays(base, 1)
-            : kind === "dayAfter" ? addDays(base, 2)
-                : base;
-
-    const value = kind === "clear"
-        ? ""
-        : (!old || isAllDay(old) ? toDateStr(target) : toDateStr(target) + old.slice(8, 12));
-
-    const patch: Patch = { [ATTR.due]: value };
-    const existing = parseOffsets(attrs[ATTR.remind]);
-    if (existing.length > 0) {
-        const shifted = shiftReminders(existing, old, value);
-        // 只在真的变了时才写，避免无意义地把 remind 也标脏
-        if (shifted.join(" ") !== existing.join(" ")) {
-            patch[ATTR.remind] = formatOffsets(shifted);
-        }
-    }
-    return patch;
-}
-
-/**
- * 时间段：同时给开始与截止（面板里直接编辑两个输入框时走这里）。
+ * 日期变更时把提醒跟着挪 —— `patchDue` 与 `patchRange` **共用同一份逻辑**。
  *
- * **必须和 `patchDue` 一样处理提醒平移** —— 提醒存的是绝对时刻，
- * 截止日改了而提醒不动，用户看到的「提前 1 天 09:00」就变成了无意义的时刻。
- * 这条曾经漏掉过：面板按钮改日期会平移，手输日期不会。
+ * 之前这两条路各写各的，结果就是「面板按钮改日期会平移提醒、手输日期不会」。
+ * 这种重复不能再出现第三次。
+ *
+ * @param patch  就地补充 remind 键
+ * @param oldDue 变更前的截止日
+ * @param newDue 变更后的截止日（空串 = 已清除）
  */
-export function patchRange(attrs: Attrs, start: string, due: string): Patch {
-    const oldDue = attrs[ATTR.due];
-    const newDue = (due ?? "").trim();
-    const patch: Patch = { [ATTR.start]: (start ?? "").trim(), [ATTR.due]: newDue };
-
+function withShiftedRemind(patch: Patch, attrs: Attrs, oldDue: string | undefined, newDue: string): Patch {
     const existing = parseOffsets(attrs[ATTR.remind]);
     if (existing.length === 0) {
         return patch;
@@ -74,10 +42,51 @@ export function patchRange(attrs: Attrs, start: string, due: string): Patch {
         return patch;
     }
     const shifted = shiftReminders(existing, oldDue, newDue);
+    // 只在真的变了时才写，避免无意义地把 remind 也标脏
     if (shifted.join(" ") !== existing.join(" ")) {
         patch[ATTR.remind] = formatOffsets(shifted);
     }
     return patch;
+}
+
+// ── 日期 ─────────────────────────────────────────────────────────────────────
+
+export type DueKind = "today" | "tomorrow" | "dayAfter" | "nextWeek" | "clear";
+
+/**
+ * 日期补丁。**保留原来的形态**：全天进全天出，有时刻进有时刻出。
+ * 若原本有提醒，会按 due 的变化量一起平移（见 `shiftReminders`）。
+ */
+export function patchDue(attrs: Attrs, kind: DueKind, now: Date): Patch {
+    const old = attrs[ATTR.due];
+    const base = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const target = kind === "today" ? base
+        : kind === "tomorrow" ? addDays(base, 1)
+            : kind === "dayAfter" ? addDays(base, 2)
+                : kind === "nextWeek" ? addDays(base, 7)
+                    : base;
+
+    const value = kind === "clear"
+        ? ""
+        : (!old || isAllDay(old) ? toDateStr(target) : toDateStr(target) + old.slice(8, 12));
+
+    return withShiftedRemind({ [ATTR.due]: value }, attrs, old, value);
+}
+
+/**
+ * 时间段：同时给开始与截止（面板里直接编辑两个输入框时走这里）。
+ *
+ * **必须和 `patchDue` 一样处理提醒平移** —— 提醒存的是绝对时刻，
+ * 截止日改了而提醒不动，用户看到的「提前 1 天 09:00」就变成了无意义的时刻。
+ * 这条曾经漏掉过：面板按钮改日期会平移，手输日期不会。
+ */
+export function patchRange(attrs: Attrs, start: string, due: string): Patch {
+    const oldDue = attrs[ATTR.due];
+    const newDue = (due ?? "").trim();
+    return withShiftedRemind(
+        { [ATTR.start]: (start ?? "").trim(), [ATTR.due]: newDue },
+        attrs, oldDue, newDue,
+    );
 }
 
 /** 关掉「全天」时补的默认时刻 */

@@ -338,3 +338,26 @@ describe("PR 直接编辑开始/截止（T13：改日期必须让提醒跟着走
         expect(patchRange({}, "202609201000", "")[ATTR.start]).toBe("202609201000");
     });
 });
+
+describe("DC 清除日期时提醒的处理（三条路径必须一致）", () => {
+    const withR = { [ATTR.due]: "20260925", [ATTR.remind]: "202609240900" };
+    it("DC1 快捷键路径 patchDue(clear) 要清掉提醒", () => {
+        const p = patchDue(withR, "clear", new Date(2026, 8, 25));
+        expect(p[ATTR.due]).toBe("");
+        expect(p[ATTR.remind]).toBe("");
+    });
+    it("DC2 面板输入框路径 patchRange('') 同样清掉", () => {
+        expect(patchRange(withR, "", "")[ATTR.remind]).toBe("");
+    });
+    it("DC3 没有提醒时都不多写键", () => {
+        expect(patchDue({ [ATTR.due]: "20260925" }, "clear", new Date(2026, 8, 25)))
+            .not.toHaveProperty(ATTR.remind);
+        expect(patchRange({ [ATTR.due]: "20260925" }, "", "")).not.toHaveProperty(ATTR.remind);
+    });
+    it("DC4 两条路径对同一个改期给出完全一样的补丁", () => {
+        const a = patchDue(withR, "tomorrow", new Date(2026, 8, 25));
+        const b = patchRange(withR, "", "20260926");
+        expect(a[ATTR.due]).toBe(b[ATTR.due]);
+        expect(a[ATTR.remind]).toBe(b[ATTR.remind]);
+    });
+});
