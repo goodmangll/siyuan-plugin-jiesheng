@@ -207,3 +207,42 @@ describe("deleteBlock", () => {
         expect(calls[0].data).toEqual({ id: "T1" });
     });
 });
+
+describe("T19 文档块也能当任务（「重任务」形态）", () => {
+    /** 建一张最小块表：id → {type, subtype, parent_id} */
+    const tree = (map: Record<string, { type: string; subtype: string; parent: string }>) =>
+        install((url, d) => {
+            if (url !== "/api/query/sql") return ok([]);
+            const m = /id='([^']+)'/.exec(String(d!.stmt));
+            const node = m ? map[m[1]] : undefined;
+            return ok(node ? [{ id: m![1], type: node.type, subtype: node.subtype, parent_id: node.parent }] : []);
+        });
+
+    it("光标直接落在文档块 → 返回文档块本身", async () => {
+        tree({ DOC: { type: "d", subtype: "", parent: "" } });
+        expect(await resolveTaskBlock("DOC")).toBe("DOC");
+    });
+
+    it("T7 不能破坏：文档里某个普通段落 → 仍然 null（往上走不认文档）", async () => {
+        tree({
+            P: { type: "p", subtype: "", parent: "DOC" },
+            DOC: { type: "d", subtype: "", parent: "" },
+        });
+        expect(await resolveTaskBlock("P")).toBeNull();
+    });
+
+    it("任务项仍然优先：光标在任务项内层段落 → 返回任务项", async () => {
+        tree({
+            INNER: { type: "p", subtype: "", parent: "LI" },
+            LI: { type: "i", subtype: "t", parent: "L" },
+            L: { type: "l", subtype: "t", parent: "DOC" },
+            DOC: { type: "d", subtype: "", parent: "" },
+        });
+        expect(await resolveTaskBlock("INNER")).toBe("LI");
+    });
+
+    it("未知块 → null，不抛", async () => {
+        tree({});
+        expect(await resolveTaskBlock("NOPE")).toBeNull();
+    });
+});

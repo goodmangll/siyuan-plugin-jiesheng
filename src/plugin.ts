@@ -9,6 +9,7 @@ import {
     appendBlock, deleteBlock, getBlockKramdown, getTaskAttrs, getTaskTitle, insertBlockAfter,
     resolveTaskBlock, setBlockAttrs, setTransport, updateBlockMarkdown,
 } from "./api/blocks";
+import { countSelectedBlocks } from "./api/dom";
 import { cursorBlockId, taskBlockIdFromElement, type ProtyleLike } from "./api/dom";
 import type { KernelResponse } from "./api/blocks";
 import { COMMANDS, type TaskCommandDeps } from "./commands";
@@ -200,6 +201,7 @@ export default class TaskFlow extends Plugin {
         return {
             now: () => new Date(),
             activeTaskBlockId: () => this.resolvedTaskBlockId(),
+            selectedBlockCount: () => countSelectedBlocks(),
             readAttrs: (id) => getTaskAttrs(id),
             writeAttrs: (id, patch) => {
                 if (!this.transportReady) {

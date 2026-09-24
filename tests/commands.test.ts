@@ -216,3 +216,22 @@ describe("T13 快捷键改日期也要让提醒同步重算（面板路径早已
         expect(writes[0].patch[ATTR.remind]).toBe("");
     });
 });
+
+describe("T18 多块选中：只作用于光标那一个，但要明说", () => {
+    it("选中 2 个块 → 给出一次提示，且仍然作用于光标块", async () => {
+        store.TASK = {};
+        deps.selectedBlockCount = () => 2;
+        await setPriority(deps, "high");
+        expect(writes).toHaveLength(1);
+        expect(writes[0].id).toBe("TASK");
+        expect(toasts.some((t) => t.includes("多个块"))).toBe(true);
+        delete deps.selectedBlockCount;
+    });
+    it("只选中 1 个 → 不打扰", async () => {
+        store.TASK = {};
+        deps.selectedBlockCount = () => 1;
+        await setPriority(deps, "high");
+        expect(toasts.some((t) => t.includes("多个块"))).toBe(false);
+        delete deps.selectedBlockCount;
+    });
+});

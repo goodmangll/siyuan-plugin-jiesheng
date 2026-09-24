@@ -31,6 +31,8 @@ export interface TaskCommandDeps {
     openPanel(id: string, focus?: string): void;
     /** 轻提示 */
     toast?(message: string): void;
+    /** 当前被整块选中的块数（用于 T18 的多选提示） */
+    selectedBlockCount?(): number;
     /** 任务**刚变成完成**时回调（重复任务生成挂在这里） */
     onCompleted?(id: string): Promise<void> | void;
 }
@@ -69,6 +71,10 @@ async function withTask(
     const id = await currentTaskBlockId(deps);
     if (!id) {
         return;
+    }
+    // T18：选中多个块时只作用于光标那一个。不装作没看见 —— 明说一次。
+    if ((deps.selectedBlockCount?.() ?? 0) > 1) {
+        deps.toast?.("任务流：选中了多个块，本次只作用于光标所在的那一个");
     }
     let attrs: Record<string, string> = {};
     try {

@@ -143,6 +143,14 @@ export async function resolveTaskBlock(id: string, maxUp = 3): Promise<string | 
         return null;
     }
     let cur = rows[0];
+
+    // 光标**直接落在文档块上**时，把文档也当作任务宿主（设计 T19 的「重任务」形态）。
+    // 只认起始块本身：往上走的过程中不认文档，否则文档里的任意普通段落
+    // 都会一路走到文档块、被误判成任务（T7 要求那种情况必须无变化）。
+    if (cur.type === "d") {
+        return cur.id;
+    }
+
     for (let i = 0; i < maxUp; i++) {
         if (cur.type === "i" && cur.subtype === "t") {
             return cur.id;
