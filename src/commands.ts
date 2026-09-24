@@ -7,9 +7,12 @@
  */
 
 import { ATTR } from "./model/attrs";
-import { isAllDay, nextWeekSameDay, toDateStr } from "./model/date";
 import { priorityAttr, type Priority } from "./model/priority";
 import { isDone, isTaskKramdown, setTaskDone } from "./model/task";
+import { patchDue, type DueKind } from "./ui/panelActions";
+
+// 转出去：调用方一直在 `./commands` 里拿 DueKind
+export type { DueKind };
 
 export interface TaskCommandDeps {
     /** 当前时间（注入以便测试） */
@@ -85,33 +88,25 @@ export async function setPriority(deps: TaskCommandDeps, level: Priority): Promi
     });
 }
 
-export type DueKind = "today" | "tomorrow" | "nextWeek";
-
-function addOne(d: Date): Date {
-    const r = new Date(d.getTime());
-    r.setDate(r.getDate() + 1);
-    return r;
-}
 
 /**
  * 设为今天 / 明天 / 下周 —— **保留原有的时刻形态**：
  * 原本是全天就仍是全天，原本有时刻就换日期不换时刻。
  */
 export async function setDueTo(deps: TaskCommandDeps, kind: DueKind): Promise<void> {
+    // 这里曾经是**一份重复实现**：只写 custom-due，不管提醒。
+    // 结果就是「面板改日期提醒会跟着走、快捷键改日期不会」——
+    // 同一个语义两条路各写各的。现在统一走 patchDue。
     await withTask(deps, async (id, attrs) => {
-        const old = attrs[ATTR.due];
-        const anchor = deps.now();
-        const base = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate());
-        const target = kind === "today" ? base : kind === "tomorrow" ? addOne(base) : nextWeekSameDay(base);
-        const value = !old || isAllDay(old) ? toDateStr(target) : toDateStr(target) + old.slice(8, 12);
-        await deps.writeAttrs(id, { [ATTR.due]: value });
+        await deps.writeAttrs(id, patchDue(attrs, kind, deps.now()));
     });
 }
 
 /** 清除日期：只动 custom-due */
 export async function clearDue(deps: TaskCommandDeps): Promise<void> {
-    await withTask(deps, async (id) => {
-        await deps.writeAttrs(id, { [ATTR.due]: "" });
+    await withTask(deps, async (id, attrs) => {
+        // 同样走 patchDue：清除日期时提醒一并清掉（提醒指向一个不存在的日期没有意义）
+        await deps.writeAttrs(id, patchDue(attrs, "clear", deps.now()));
     });
 }
 
@@ -150,7 +145,8 @@ export async function openPanel(deps: TaskCommandDeps): Promise<void> {
     if (!id) {
         return;
     }
-    deps.openPanel(id);
+    // 带上 focus：设计 T8 要求「面板打开且日期区获得焦点」
+    deps.openPanel(id, "due");
 }
 
 // ── 命令表 ───────────────────────────────────────────────────────────────────

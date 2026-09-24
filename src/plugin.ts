@@ -153,13 +153,19 @@ export default class TaskFlow extends Plugin {
         };
     }
 
+    /** 待处理的一次性焦点请求（面板打开后由面板取走） */
+    private pendingFocus: string | null = null;
+
     /** 块标菜单宿主 */
     private buildBlockMenuDeps(): BlockMenuDeps {
         return {
             now: () => new Date(),
             readAttrs: (id: string) => getTaskAttrs(id),
             writeAttrs: (id: string, patch: Record<string, string>) => setBlockAttrs(id, patch),
-            openPanel: (id: string) => {
+            openPanel: (id: string, focus?: string) => {
+                // focus 之前被 `void id;` 一起丢掉了 —— 设计 T8 要求
+                // 「面板打开且日期区获得焦点」，但实际从来没聚焦过
+                this.pendingFocus = focus ?? "due";
                 this.panel?.refresh();
                 this.openDock();
                 void id;
@@ -178,6 +184,11 @@ export default class TaskFlow extends Plugin {
             title: (id: string) => getTaskTitle(id),
             openBlock: (id: string) => this.openBlock(id),
             removeBlock: async (id: string) => { await deleteBlock(id); },
+            takeFocus: () => {
+                const f = this.pendingFocus;
+                this.pendingFocus = null;
+                return f;
+            },
             toggleDone: (id: string) => this.toggleDone(id),
             isDone: async (id: string) => isDone(await getBlockKramdown(id)),
             toast: (m: string) => showMessage(m, 3000),
@@ -198,7 +209,11 @@ export default class TaskFlow extends Plugin {
             },
             readKramdown: (id) => getBlockKramdown(id),
             writeKramdown: (id, md) => updateBlockMarkdown(id, md),
-            openPanel: () => {
+            // ⌥⇧D 走的是这一条（块标菜单走 buildBlockMenuDeps 的那条）。
+            // 这里曾经写成 `openPanel: () => {…}`，连参数都不收 ——
+            // 所以命令层传下来的 focus 在插件这一层就被丢了，面板永远不聚焦。
+            openPanel: (_id: string, focus?: string) => {
+                this.pendingFocus = focus ?? "due";
                 this.panel?.refresh();
                 this.openDock();
             },

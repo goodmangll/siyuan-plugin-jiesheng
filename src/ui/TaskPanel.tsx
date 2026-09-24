@@ -3,7 +3,7 @@
  *
  * 这里只做渲染与接线：所有判断都在 `panelActions.ts`（纯函数，已单测）。
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ATTR, toMeta } from "../model/attrs";
 import { isAllDay } from "../model/date";
 import { priorityLabel, type Priority } from "../model/priority";
@@ -30,6 +30,11 @@ export interface TaskPanelHost {
     openBlock(id: string): void;
     /** 删除块（进回收站） */
     removeBlock(id: string): Promise<void>;
+    /**
+     * 取走一次「打开面板后该聚焦哪个字段」的请求，取过即清。
+     * 用「取」而不是「读」是为了保证只生效一次 —— 否则面板每次重渲染都会抢焦点。
+     */
+    takeFocus(): string | null;
     /** 完成状态 */
     toggleDone(id: string): Promise<void>;
     isDone(id: string): Promise<boolean>;
@@ -74,6 +79,14 @@ export function TaskPanel({ host, onReady }: { host: TaskPanelHost; onReady?: (r
     const [customAt, setCustomAt] = useState("");
     const [countText, setCountText] = useState("");
     const [exdate, setExdate] = useState("");
+    // 属性读完了没有 —— 面板的「就绪」信号。
+    // 没有它，测试（和我自己跑真机验收时）只能靠 sleep 猜时机，
+    // 表现就是「第一次点没生效、第二次才生效」这种忽灵忽不灵的假象。
+    const [ready, setReady] = useState(false);
+    // 每次 reload 都 +1：让下面那个焦点 effect 每回都重跑一遍。
+    // 否则「面板已经开着、再按一次 ⌥⇧D」不会重新聚焦（effect 的依赖没变）
+    const [focusTick, setFocusTick] = useState(0);
+    const dueRef = useRef<HTMLInputElement>(null);
 
     const reload = useCallback(async (id?: string | null) => {
         const target = id ?? await host.currentBlockId();
@@ -81,6 +94,7 @@ export function TaskPanel({ host, onReady }: { host: TaskPanelHost; onReady?: (r
         if (!target) {
             setAttrs({});
             setTitle("");
+            setReady(true);
             return;
         }
         try {
@@ -90,6 +104,8 @@ export function TaskPanel({ host, onReady }: { host: TaskPanelHost; onReady?: (r
         } catch {
             setAttrs({});
         }
+        setReady(true);
+        setFocusTick((n) => n + 1);
     }, [host]);
 
     useEffect(() => {
@@ -102,6 +118,33 @@ export function TaskPanel({ host, onReady }: { host: TaskPanelHost; onReady?: (r
             void reload();
         });
     }, [onReady, reload]);
+
+    // 属性就绪后再处理焦点请求：早了会聚焦到一个还没渲染出来的输入框
+    useEffect(() => {
+        if (!ready || !blockId || host.takeFocus() !== "due") {
+            return;
+        }
+        // Dock 是**展开动画**中挂上来的：effect 跑的那一刻输入框已经存在，
+        // 但 offsetParent 还是 null（不可见），此时 focus() 是**空操作**。
+        // 真机实测：t=0 时 offsetParent=false，t≈560ms 才可见 —— 一次 focus 根本不够。
+        let tries = 0;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const attempt = () => {
+            const el = dueRef.current;
+            if (!el) {
+                return;
+            }
+            el.focus();
+            if (document.activeElement === el) {
+                return; // 真的聚焦上了
+            }
+            if (tries++ < 20) {
+                timer = setTimeout(attempt, 50);
+            }
+        };
+        attempt();
+        return () => { if (timer) { clearTimeout(timer); } };
+    }, [ready, blockId, focusTick, host]);
 
     const apply = useCallback(async (patch: Patch | null, failMessage?: string) => {
         if (patch === null) {
@@ -132,7 +175,7 @@ export function TaskPanel({ host, onReady }: { host: TaskPanelHost; onReady?: (r
     }
 
     return (
-        <div className="task-flow-panel" style={{ padding: "10px 12px", fontSize: 13, lineHeight: 1.7 }}>
+        <div className="task-flow-panel" data-state={ready ? "ready" : "loading"} style={{ padding: "10px 12px", fontSize: 13, lineHeight: 1.7 }}>
             <div style={{ display: "flex", alignItems: "center", marginBottom: 8 }}>
                 <span style={{ fontWeight: 600, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {title || "任务"}
@@ -157,6 +200,7 @@ export function TaskPanel({ host, onReady }: { host: TaskPanelHost; onReady?: (r
                 <span style={labelStyle} />
                 <span style={{ opacity: 0.6, marginRight: 6 }}>截止</span>
                 <input
+                    ref={dueRef} data-tf="due"
                     key={`due-${blockId}-${attrs[ATTR.due] ?? ""}`}
                     className="b3-text-field" style={fieldStyle} defaultValue={toInputValue(attrs[ATTR.due])}
                     placeholder="yyyy-MM-dd 或 yyyy-MM-ddTHH:mm"
