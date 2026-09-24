@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
-    firstInnerParagraph, getTaskAttrs, isSubtaskBlock, isTaskBlock, resolveTaskBlock,
+    appendBlock, firstInnerParagraph, getTaskAttrs, isSubtaskBlock, isTaskBlock, resolveTaskBlock,
     setBlockAttrs, setTransport, type KernelResponse,
 } from "../../src/api/blocks";
 
@@ -169,5 +169,14 @@ describe("任务块归一化（光标常落在段落块上）", () => {
     it("块不存在 → null，不抛", async () => {
         install((url) => (url === "/api/query/sql" ? ok([]) : ok(null)));
         expect(await resolveTaskBlock("NOPE")).toBeNull();
+    });
+});
+
+describe("appendBlock", () => {
+    it("调的是 appendBlock 且 dataType=markdown", async () => {
+        install((url) => (url === "/api/block/appendBlock" ? ok(null) : ok(null)));
+        await appendBlock("TASK", "  - [ ] 子任务");
+        expect(calls[0].url).toBe("/api/block/appendBlock");
+        expect(calls[0].data).toMatchObject({ parentID: "TASK", dataType: "markdown", data: "  - [ ] 子任务" });
     });
 });

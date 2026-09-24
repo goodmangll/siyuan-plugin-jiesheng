@@ -6,12 +6,15 @@
  */
 import { Plugin, fetchSyncPost, getActiveEditor, showMessage } from "siyuan";
 import {
-    getBlockKramdown, getTaskAttrs, resolveTaskBlock, setBlockAttrs, setTransport, updateBlockMarkdown,
+    appendBlock, getBlockKramdown, getTaskAttrs, resolveTaskBlock, setBlockAttrs, setTransport,
+    updateBlockMarkdown,
 } from "./api/blocks";
 import { cursorBlockId, type ProtyleLike } from "./api/dom";
 import type { KernelResponse } from "./api/blocks";
 import { COMMANDS, type TaskCommandDeps } from "./commands";
-import { DockPanel } from "./ui/dockPanel";
+import { mountTaskPanel, type TaskPanelHandle } from "./ui/mountPanel";
+import { isDone, setTaskDone } from "./model/task";
+
 
 const DOCK_TYPE = "taskFlowDock";
 const NOT_READY = "任务流：插件仍在初始化，请稍后再试";
@@ -21,7 +24,7 @@ const ICON = '<symbol id="iconTaskFlow" viewBox="0 0 32 32">'
     + "</symbol>";
 
 export default class TaskFlow extends Plugin {
-    private panel: DockPanel | null = null;
+    private panel: TaskPanelHandle | null = null;
     private transportReady = false;
 
     async onload(): Promise<void> {
@@ -51,6 +54,11 @@ export default class TaskFlow extends Plugin {
             });
         }
 
+        // 光标在编辑器里移动时，面板跟着换任务
+        this.eventBus.on("click-editorcontent", () => {
+            this.panel?.refresh();
+        });
+
         try {
             this.addDock({
                 id: DOCK_TYPE,
@@ -67,11 +75,7 @@ export default class TaskFlow extends Plugin {
                     if (!el) {
                         return;
                     }
-                    this.panel = new DockPanel({
-                        currentBlockId: () => this.currentBlockId(),
-                        readAttrs: (id) => getTaskAttrs(id),
-                    });
-                    this.panel.mount(el);
+                    this.panel = mountTaskPanel(el, this.buildPanelHost());
                 },
             });
         } catch (e) {
@@ -80,16 +84,34 @@ export default class TaskFlow extends Plugin {
     }
 
     onunload(): void {
+        this.panel?.unmount();
         this.panel = null;
+    }
+
+    /** 面板宿主：全部通过 api 层，面板本身不碰思源 API */
+    private buildPanelHost() {
+        return {
+            currentBlockId: () => this.resolvedTaskBlockId(),
+            readAttrs: (id: string) => getTaskAttrs(id),
+            writeAttrs: (id: string, patch: Record<string, string>) => setBlockAttrs(id, patch),
+            appendSubtask: async (id: string, markdown: string) => { await appendBlock(id, markdown); },
+            toggleDone: async (id: string) => {
+                const kr = await getBlockKramdown(id);
+                const next = nextDone(kr);
+                if (next) {
+                    await updateBlockMarkdown(id, next);
+                }
+            },
+            isDone: async (id: string) => isDone(await getBlockKramdown(id)),
+            toast: (m: string) => showMessage(m, 3000),
+            now: () => new Date(),
+        };
     }
 
     private buildDeps(): TaskCommandDeps {
         return {
             now: () => new Date(),
-            activeTaskBlockId: async () => {
-                const cur = this.currentBlockId();
-                return cur ? await resolveTaskBlock(cur) : null;
-            },
+            activeTaskBlockId: () => this.resolvedTaskBlockId(),
             readAttrs: (id) => getTaskAttrs(id),
             writeAttrs: (id, patch) => {
                 if (!this.transportReady) {
@@ -99,12 +121,18 @@ export default class TaskFlow extends Plugin {
             },
             readKramdown: (id) => getBlockKramdown(id),
             writeKramdown: (id, md) => updateBlockMarkdown(id, md),
-            openPanel: (id) => {
-                void this.panel?.refresh(id);
+            openPanel: () => {
+                this.panel?.refresh();
                 this.openDock();
             },
             toast: (m) => showMessage(m, 3000),
         };
+    }
+
+    /** 光标块 → 归一化到任务项（面板与命令层必须用同一套口径） */
+    private async resolvedTaskBlockId(): Promise<string | null> {
+        const cur = this.currentBlockId();
+        return cur ? await resolveTaskBlock(cur) : null;
     }
 
     /** 当前编辑器里光标所在的块 id（未归一化） */
@@ -125,4 +153,9 @@ export default class TaskFlow extends Plugin {
             /* 面板没挂上就算了，不影响命令本身 */
         }
     }
+}
+
+/** kramdown → 切换完成状态后的 kramdown；非任务块返回 null */
+function nextDone(kramdown: string): string | null {
+    return setTaskDone(kramdown, !isDone(kramdown));
 }
