@@ -23,6 +23,14 @@ export interface BlockMenuDeps {
     readAttrs(id: string): Promise<Record<string, string>>;
     writeAttrs(id: string, patch: Patch): Promise<void>;
     openPanel(id: string): void;
+    /**
+     * 把一个 `- [ ]` 块**升格成任务文档**。
+     * ★ 任务 = 文档，所以老模型里的 `- [ ]` 块不再是任务；
+     *   要让一条随手记变成真任务，就得把它变成文档。
+     */
+    promoteToTask?(id: string): Promise<void>;
+    /** 取消任务标记（= 同类产品的「转为笔记」：不再当任务，但内容都留着） */
+    demoteFromTask?(id: string): Promise<void>;
     /** 出错时提示（可选） */
     onError?(message: string): void;
 }
@@ -83,5 +91,32 @@ export function buildBlockMenuItems(
                 }
             },
         },
+        {
+            icon: ICON,
+            label: "转为任务（建文档）",
+            click: run(() => deps.promoteToTask?.(id), deps),
+        },
+        {
+            icon: ICON,
+            label: "不再作为任务",
+            click: run(() => deps.demoteFromTask?.(id), deps),
+        },
     ];
+}
+
+/**
+ * 包一层错误处理，菜单点击不该把异常抛到思源那边。
+ *
+ * ⚠️ 返回的就是那个 async 函数本身，调用方直接 `click: run(...)` ——
+ *    写成 `click: () => run(...)` 只会**返回**函数而从不调用它，
+ *    表现为「点菜单什么都不发生」（真机+单测都踩到）。
+ */
+function run(fn: () => Promise<void> | undefined, deps: BlockMenuDeps): () => Promise<void> {
+    return async () => {
+        try {
+            await fn();
+        } catch (e) {
+            deps.onError?.((e as Error).message || "执行失败");
+        }
+    };
 }

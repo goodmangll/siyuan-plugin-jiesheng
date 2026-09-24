@@ -6,6 +6,8 @@
  */
 
 /** 子块的最小信息 */
+const TASK_LINE_RE = /^(\s*-\s+(?:\{:[^}]*\}\s*)?)(\[ \]|\[[xX]\])/;
+
 export interface ChildBlock {
     id: string;
     type: string;
@@ -88,4 +90,38 @@ export function stripFrontmatter(md: string | null | undefined): string {
         return s;
     }
     return s.slice(end + 4).replace(/^\n+/, "");
+}
+
+/**
+ * 把一块 `- [ ]` 的 kramdown 拆成「标题 + 正文」。
+ *
+ * 用于**升格**：随手记的 `- [ ]`（老模型的"任务"）变成一个真任务文档。
+ * ★ 任务 = 文档之后，`- [ ]` 块不再是任务；要让随手记变成任务，就得建文档。
+ *
+ * 正文里的缩进要还原：块 kramdown 的子块都缩进了 2 格，搬进文档时要退掉，
+ * 否则会变成「引用块似的」结构。
+ */
+export function splitTaskBlock(kramdown: string | null | undefined): { title: string; body: string } {
+    const src = (kramdown ?? "").replace(/\r\n/g, "\n");
+    if (!src.trim()) {
+        return { title: "", body: "" };
+    }
+    const nl = src.indexOf("\n");
+    const first = nl === -1 ? src : src.slice(0, nl);
+    const rest = nl === -1 ? "" : src.slice(nl + 1);
+
+    const m = TASK_LINE_RE.exec(first);
+    const title = (m ? first.slice(m[0].length) : first).trim();
+
+    // 子块缩进了 2 格（也可能更深）→ 统一退掉最小缩进
+    const lines = rest.split("\n");
+    let minIndent = Infinity;
+    for (const l of lines) {
+        if (!l.trim()) continue;
+        minIndent = Math.min(minIndent, l.length - l.trimStart().length);
+    }
+    const dedented = Number.isFinite(minIndent) && minIndent > 0
+        ? lines.map((l) => (l.trim() ? l.slice(minIndent) : l)).join("\n")
+        : rest;
+    return { title, body: dedented.trim() };
 }
