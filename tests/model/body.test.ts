@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bodyBlocks, bodySummary, type ChildBlock } from "../../src/model/body";
+import { bodyBlocks, bodySummary, cleanDocBody, stripFrontmatter, type ChildBlock } from "../../src/model/body";
 
 const c = (id: string, type: string, text: string, subtype = ""): ChildBlock =>
     ({ id, type, subtype, text });
@@ -53,5 +53,49 @@ describe("B2 正文摘要（列表行上显示用）", () => {
     it("没有正文 → 空串", () => {
         expect(bodySummary([])).toBe("");
         expect(bodySummary(null as never)).toBe("");
+    });
+});
+
+describe("B3 剥掉导出正文的 frontmatter（重复任务要复制正文，frontmatter 不能带过去）", () => {
+    it("标准 frontmatter 被剥掉", () => {
+        const md = "---\ntitle: 甲\ndate: 2026-01-01\n---\n\n# 甲\n\n正文\n";
+        expect(stripFrontmatter(md)).toBe("# 甲\n\n正文\n");
+    });
+    it("没有 frontmatter → 原样", () => {
+        expect(stripFrontmatter("# 甲\n\n正文\n")).toBe("# 甲\n\n正文\n");
+    });
+    it("只有开头 --- 没有结尾 → 原样返回，别把内容吃掉", () => {
+        const md = "---\ntitle: 甲\n没结尾\n";
+        expect(stripFrontmatter(md)).toBe(md);
+    });
+    it("空输入 → 空串", () => {
+        expect(stripFrontmatter("")).toBe("");
+        expect(stripFrontmatter(null as never)).toBe("");
+    });
+    it("正文里出现 --- 分隔线不会误伤", () => {
+        const md = "---\ntitle: 甲\n---\n\n# 甲\n\n---\n\n后面还有内容\n";
+        expect(stripFrontmatter(md)).toBe("# 甲\n\n---\n\n后面还有内容\n");
+    });
+});
+
+
+describe("B4 cleanDocBody：导出正文里要去掉「自动加的标题 h1」（真机：不然标题重复四遍）", () => {
+    it("frontmatter + 自动加的 # 标题 都去掉", () => {
+        const md = "---\ntitle: 甲\n---\n\n# 甲\n\n正文\n";
+        expect(cleanDocBody(md, "甲")).toBe("正文\n");
+    });
+    it("标题不匹配时**不动**（别把用户自己的小标题吃掉）", () => {
+        const md = "---\ntitle: 甲\n---\n\n# 另一个标题\n\n正文\n";
+        expect(cleanDocBody(md, "甲")).toBe("# 另一个标题\n\n正文\n");
+    });
+    it("没给标题 → 只剥 frontmatter", () => {
+        expect(cleanDocBody("---\ntitle: 甲\n---\n\n# 甲\n\n正文\n")).toBe("# 甲\n\n正文\n");
+    });
+    it("没有标题行也不崩", () => {
+        expect(cleanDocBody("---\ntitle: 甲\n---\n\n正文\n", "甲")).toBe("正文\n");
+    });
+    it("空输入 → 空串", () => {
+        expect(cleanDocBody("", "甲")).toBe("");
+        expect(cleanDocBody(null as never, "甲")).toBe("");
     });
 });

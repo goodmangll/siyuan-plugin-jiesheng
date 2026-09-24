@@ -6,7 +6,7 @@
  */
 import { Plugin, fetchSyncPost, getActiveEditor, openTab, showMessage } from "siyuan";
 import {
-    deleteBlock, getBlockKramdown, getTaskAttrs, getTaskTitle, insertBlockAfter,
+    deleteBlock, getBlockKramdown, getTaskAttrs, getTaskTitle,
     resolveTaskBlock, setBlockAttrs, setTransport, updateBlockMarkdown,
 } from "./api/blocks";
 import { countSelectedBlocks } from "./api/dom";
@@ -351,18 +351,6 @@ export default class TaskFlow extends Plugin {
         }
     }
 
-    /** 重复生成的宿主 */
-    private buildGenerateDeps(): GenerateDeps {
-        return {
-            now: () => new Date(),
-            readAttrs: (id: string) => getTaskAttrs(id),
-            readTitle: (id: string) => getTaskTitle(id),
-            insertAfter: (prev: string, md: string) => insertBlockAfter(prev, md),
-            writeAttrs: (id: string, patch: Record<string, string>) => setBlockAttrs(id, patch),
-            toast: (m: string) => showMessage(m, 3500),
-        };
-    }
-
     /** 笔记本 id → 名字。文档任务的清单默认取它。 */
     private async notebookMap(): Promise<Record<string, string>> {
         try {
@@ -392,8 +380,8 @@ export default class TaskFlow extends Plugin {
     /**
      * 新建任务文档。
      *
-     * 落在「任务流收件箱」笔记本里（没有就建一个），打上 custom-task 标记，
-     * 这样才会被视图捞出来（文档数以千计，不打标记的全都不算任务）。
+     * 落在任务笔记本里，打上 custom-task 标记 —— 工作区有一千多个文档，
+     * 不打标记的全都不算任务。
      */
     private async createTaskDoc(title: string, due: string | null): Promise<string | null> {
         const notebook = await ensureTaskNotebook();
@@ -401,7 +389,8 @@ export default class TaskFlow extends Plugin {
             showMessage("任务流：找不到可用的笔记本，无法新建任务", 5000, "error");
             return null;
         }
-        const id = await createDocWithMd(notebook, `/${sanitizeTitle(title)}`, `# ${title}\n\n`);
+        // markdown 里**不写 `# 标题`** —— 标题由路径给出，写了会变成正文里的第一个块
+        const id = await createDocWithMd(notebook, `/${sanitizeTitle(title)}`, "");
         if (!id) {
             showMessage("任务流：新建任务文档失败", 5000, "error");
             return null;
@@ -416,6 +405,26 @@ export default class TaskFlow extends Plugin {
 
     /** 待处理的一次性焦点请求（面板打开后由面板取走） */
     private pendingFocus: string | null = null;
+
+    /** 重复生成的宿主 */
+    private buildGenerateDeps(): GenerateDeps {
+        return {
+            now: () => new Date(),
+            readAttrs: (id: string) => getTaskAttrs(id),
+            readTitle: (id: string) => getTaskTitle(id),
+            exportBody: async (id: string) => {
+                const res = await callKernel<{ content?: string }>("/api/export/exportMdContent", { id });
+                return res?.content ?? "";
+            },
+            notebookOf: async (id: string) => {
+                const rows = await runSql<{ box: string }>(`select box from blocks where id='${id}' limit 1`);
+                return rows[0]?.box ?? null;
+            },
+            createDoc: (notebook: string, title: string, markdown: string) =>
+                createDocWithMd(notebook, `/${sanitizeTitle(title)}`, markdown),
+            writeAttrs: (id: string, patch: Record<string, string>) => setAttrsAndWait(id, patch, ATTR.task, "1"),
+        };
+    }
 
     /** 块标菜单宿主 */
     private buildBlockMenuDeps(): BlockMenuDeps {

@@ -148,7 +148,7 @@ export async function createSubTask(parentId: string, title: string): Promise<st
     if (!notebook) {
         return null;
     }
-    const id = await createDocWithMd(notebook, `/${sanitizeTitle(title)}`, `# ${title}\n\n`);
+    const id = await createDocWithMd(notebook, `/${sanitizeTitle(title)}`, "");
     if (!id) {
         return null;
     }

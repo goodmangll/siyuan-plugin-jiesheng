@@ -96,7 +96,9 @@ select b.id, b.content as title,
        (select value from attributes where block_id=b.id and name='custom-pri') as pri,
        (select value from attributes where block_id=b.id and name='custom-list') as list
 from blocks b
-where b.type='i' and b.subtype='t' and b.markdown like '- [ ]%'
+where b.type='d'
+  and exists (select 1 from attributes a where a.block_id=b.id and a.name='custom-task' and a.value='1')
+  and (select value from attributes where block_id=b.id and name='custom-done') is null
   and (select value from attributes where block_id=b.id and name='custom-remind') is not null
   and (select value from attributes where block_id=b.id and name='custom-abandoned') is null
 order by b.updated desc
