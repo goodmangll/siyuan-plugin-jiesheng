@@ -8,6 +8,7 @@
 
 import type { Priority } from "../model/priority";
 import type { SmartListId } from "./query";
+import type { SeriesPoint } from "./stats";
 import type { ViewTask } from "./model";
 
 /** 视图类型：5 个智能清单 + 4 个专属视图 */
@@ -36,6 +37,10 @@ export interface ViewHost {
     lists(): Promise<string[]>;
     /** 取一个日期区间内的任务（日历用），起含止不含 */
     loadRange(from: string, to: string): Promise<ViewTask[]>;
+    /** 近 N 天的新建 / 完成趋势（统计用） */
+    trends(today: string, days: number): Promise<{ created: SeriesPoint[]; done: SeriesPoint[] }>;
+    /** 未完成任务的分布（统计用） */
+    distributions(): Promise<{ byList: { name: string; c: number }[]; byPriority: { p: string; c: number }[] }>;
     /** 勾选完成 / 取消完成（内部会处理重复任务生成） */
     toggleDone(id: string): Promise<void>;
     /** 在文档里定位到这个块 */

@@ -14,6 +14,9 @@ import { createTaskIn, ensureInboxDoc, setAttrsAndWait } from "./api/views";
 import { runSql } from "./api/blocks";
 import { mountTab, type TabHandle } from "./views/mountTab";
 import { calendarSql, countSql, listsSql, smartListIds, sqlForView, type SmartListId } from "./views/query";
+import {
+    createdTrendSql, doneTrendSql, fillSeries, listDistSql, priorityDistSql, recentDays,
+} from "./views/stats";
 import { toViewTasks, type TaskRow } from "./views/model";
 import type { ViewHost, ViewId } from "./views/host";
 import { patchList, patchPriority, patchRange } from "./ui/panelActions";
@@ -27,6 +30,14 @@ import { buildBlockMenuItems, type BlockMenuDeps } from "./ui/blockMenu";
 import { isDone, setTaskDone } from "./model/task";
 import { generateNextRepeat, type GenerateDeps } from "./generate";
 
+
+/** 某天的次日（日期区间的上界用） */
+function plusOneDay(day: string): string {
+    const y = Number(day.slice(0, 4)), m = Number(day.slice(4, 6)), d = Number(day.slice(6, 8)) + 1;
+    const t = new Date(y, m - 1, d);
+    const p = (n: number) => String(n).padStart(2, "0");
+    return `${t.getFullYear()}${p(t.getMonth() + 1)}${p(t.getDate())}`;
+}
 
 const TAB_TYPE = "taskFlowTab";
 const DOCK_TYPE = "taskFlowDock";
@@ -202,6 +213,25 @@ export default class TaskFlow extends Plugin {
                 return toViewTasks(rows, this.today());
             },
 
+            trends: async (today: string, days: number) => {
+                const axis = recentDays(today, days);
+                const from = axis[0] ?? today;
+                const to = plusOneDay(axis[axis.length - 1] ?? today);
+                const [created, done] = await Promise.all([
+                    runSql<{ d: string; c: number }>(createdTrendSql(from, to)),
+                    runSql<{ d: string; c: number }>(doneTrendSql(from, to)),
+                ]);
+                return { created: fillSeries(created, axis), done: fillSeries(done, axis) };
+            },
+
+            distributions: async () => {
+                const [byList, byPriority] = await Promise.all([
+                    runSql<{ name: string; c: number }>(listDistSql()),
+                    runSql<{ p: string; c: number }>(priorityDistSql()),
+                ]);
+                return { byList, byPriority };
+            },
+
             lists: async () => {
                 const rows = await runSql<{ name: string }>(listsSql());
                 return rows.map((r) => r.name).filter(Boolean);
@@ -335,6 +365,25 @@ export default class TaskFlow extends Plugin {
             loadRange: async (from: string, to: string) => {
                 const rows = await runSql<TaskRow>(calendarSql(from, to));
                 return toViewTasks(rows, this.today());
+            },
+
+            trends: async (today: string, days: number) => {
+                const axis = recentDays(today, days);
+                const from = axis[0] ?? today;
+                const to = plusOneDay(axis[axis.length - 1] ?? today);
+                const [created, done] = await Promise.all([
+                    runSql<{ d: string; c: number }>(createdTrendSql(from, to)),
+                    runSql<{ d: string; c: number }>(doneTrendSql(from, to)),
+                ]);
+                return { created: fillSeries(created, axis), done: fillSeries(done, axis) };
+            },
+
+            distributions: async () => {
+                const [byList, byPriority] = await Promise.all([
+                    runSql<{ name: string; c: number }>(listDistSql()),
+                    runSql<{ p: string; c: number }>(priorityDistSql()),
+                ]);
+                return { byList, byPriority };
             },
 
             lists: async () => {
