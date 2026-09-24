@@ -91,6 +91,9 @@ export function TaskRow({ task, today, host, onChanged, depth = 1, childCount = 
                     {childCount > 0 && <span title="直属子任务数">⤷ {childCount}</span>}
                     {task.repeat && <span title={task.repeat}>↻</span>}
                     {task.hasReminder && <span title="有提醒">🔔</span>}
+                    {task.tags.map((tag) => (
+                        <span key={tag} data-tf-tag={tag} style={{ opacity: 0.75 }}>#{tag}</span>
+                    ))}
                 </div>
             </div>
             <a

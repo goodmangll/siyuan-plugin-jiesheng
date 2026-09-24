@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
     attr, boardSql, calendarSql, countSql, doneSql, doneTasksWhere, listSql, listsSql, openTasksWhere,
-    smartListIds, sqlForView, TASK_MARK,
+    SELECT_COLS, smartListIds, sqlForView, tagsSql, TASK_MARK,
 } from "../../src/views/query";
 
 const TODAY = "20260925";
@@ -187,5 +187,21 @@ describe("Q9 已完成清单（没有它就没法在界面上取消完成 ——
     });
     it("计数与列表同源", () => {
         expect(countSql("done", { today: TODAY })).toContain("custom-done");
+    });
+});
+
+describe("Q10 标签（思源原生 #tag#，存在 spans 表里）", () => {
+    it("tagsSql 从 spans 取，按 root_id 归到文档", () => {
+        const s = tagsSql();
+        expect(s).toContain("spans");
+        expect(s).toContain("type='tag'");
+        expect(s).toContain("root_id");
+    });
+    it("SELECT_COLS 里带上了标签子查询（列表行要显示）", () => {
+        expect(SELECT_COLS).toContain("spans");
+        expect(SELECT_COLS).toContain("as tags");
+    });
+    it("标签子查询不会拖垮主查询（是用 group_concat 聚合成一个字符串）", () => {
+        expect(SELECT_COLS).toMatch(/group_concat/i);
     });
 });
