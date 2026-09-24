@@ -10,8 +10,8 @@ import {
     resolveTaskBlock, setBlockAttrs, setTransport, updateBlockMarkdown,
 } from "./api/blocks";
 import { countSelectedBlocks } from "./api/dom";
-import { createTaskIn, ensureInboxDoc, setAttrsAndWait } from "./api/views";
-import { runSql } from "./api/blocks";
+import { ensureTaskNotebook, sanitizeTitle, setAttrsAndWait } from "./api/views";
+import { callKernel, createDocWithMd, runSql } from "./api/blocks";
 import { mountTab, type TabHandle } from "./views/mountTab";
 import { calendarSql, countSql, listsSql, smartListIds, sqlForView, type SmartListId } from "./views/query";
 import {
@@ -22,12 +22,12 @@ import type { ViewHost, ViewId } from "./views/host";
 import { patchList, patchPriority, patchRange } from "./ui/panelActions";
 import { toDateStr } from "./model/date";
 import { ATTR } from "./model/attrs";
+import { toDateTimeStr } from "./model/date";
 import { cursorBlockId, taskBlockIdFromElement, type ProtyleLike } from "./api/dom";
 import type { KernelResponse } from "./api/blocks";
 import { COMMANDS, type TaskCommandDeps } from "./commands";
 import { mountTaskPanel, type TaskPanelHandle } from "./ui/mountPanel";
 import { buildBlockMenuItems, type BlockMenuDeps } from "./ui/blockMenu";
-import { isDone, setTaskDone } from "./model/task";
 import { generateNextRepeat, type GenerateDeps } from "./generate";
 
 
@@ -197,7 +197,12 @@ export default class TaskFlow extends Plugin {
             load: async (view: ViewId, today: string) => {
                 // 分发在 views/query.sqlForView 里（纯函数、已测）——
                 // 每个视图都必须有归宿，漏一个就是真机上的「未知的智能清单」
-                return toViewTasks(await runSql<TaskRow>(sqlForView(view, today)), today);
+                const [rows, notebooks] = await Promise.all([
+                    runSql<TaskRow>(sqlForView(view, today)),
+                    this.notebookMap(),
+                ]);
+                // 清单默认取笔记本名，所以映射时必须把表带进去
+                return toViewTasks(rows, today, notebooks);
             },
 
             counts: async (today: string) => {
@@ -209,8 +214,11 @@ export default class TaskFlow extends Plugin {
             },
 
             loadRange: async (from: string, to: string) => {
-                const rows = await runSql<TaskRow>(calendarSql(from, to));
-                return toViewTasks(rows, this.today());
+                const [rows, notebooks] = await Promise.all([
+                    runSql<TaskRow>(calendarSql(from, to)),
+                    this.notebookMap(),
+                ]);
+                return toViewTasks(rows, this.today(), notebooks);
             },
 
             trends: async (today: string, days: number) => {
@@ -237,7 +245,8 @@ export default class TaskFlow extends Plugin {
                 return rows.map((r) => r.name).filter(Boolean);
             },
 
-            toggleDone: (id: string) => this.toggleDone(id),
+            // ★ 任务 = 文档，文档没有复选框 → 完成状态就是 custom-done 时间戳
+            toggleDone: (id: string) => this.toggleTaskDoneWithRepeat(id),
 
             openBlock: (id: string) => this.openBlock(id),
 
@@ -265,13 +274,9 @@ export default class TaskFlow extends Plugin {
                 await setAttrsAndWait(id, patchList(list), ATTR.list, list);
             },
 
+            // ★ 新建任务 = 新建文档（并打上任务标记）
             createTask: async (title: string, due: string | null) => {
-                const doc = await ensureInboxDoc();
-                if (!doc) {
-                    showMessage("任务流：找不到可用的笔记本，无法新建任务", 5000, "error");
-                    return;
-                }
-                await createTaskIn(doc, title, due);
+                await this.createTaskDoc(title, due);
             },
 
             subscribe: (onChange: () => void) => {
@@ -290,14 +295,16 @@ export default class TaskFlow extends Plugin {
         this.panel = null;
     }
 
-    /** 切换完成状态；刚变成完成时触发生成重复任务 */
-    private async toggleDone(id: string): Promise<void> {
-        const kr = await getBlockKramdown(id);
-        const wasDone = isDone(kr);
-        const next = nextDone(kr);
-        if (next) {
-            await updateBlockMarkdown(id, next);
-        }
+    /**
+     * 切换完成状态；**刚变成完成时**触发生成重复任务。
+     *
+     * 旧模型走的是「读 kramdown → 改 [ ]/[X] → 写回」；
+     * 新模型（任务=文档）没有复选框，完成就是 custom-done 时间戳。
+     */
+    private async toggleTaskDoneWithRepeat(id: string): Promise<void> {
+        const attrs = await getTaskAttrs(id);
+        const wasDone = (attrs[ATTR.done] ?? "").trim() !== "";
+        await this.toggleTaskDone(id);
         if (!wasDone) {
             await this.afterCompleted(id);
         }
@@ -323,6 +330,57 @@ export default class TaskFlow extends Plugin {
             writeAttrs: (id: string, patch: Record<string, string>) => setBlockAttrs(id, patch),
             toast: (m: string) => showMessage(m, 3500),
         };
+    }
+
+    /** 笔记本 id → 名字。文档任务的清单默认取它。 */
+    private async notebookMap(): Promise<Record<string, string>> {
+        try {
+            const res = await callKernel<{ notebooks?: { id: string; name: string }[] }>(
+                "/api/notebook/lsNotebooks", {},
+            );
+            return Object.fromEntries((res?.notebooks ?? []).map((n) => [n.id, n.name]));
+        } catch {
+            return {};
+        }
+    }
+
+    /**
+     * 切换完成状态。
+     *
+     * ★ 任务 = 文档，文档**没有复选框**，所以完成就是 `custom-done` 时间戳：
+     *   写一个 yyyyMMddHHmm 表示完成，清空表示未完成。
+     *   视图里的那个复选框是我们自己画的，它写的就是这个属性。
+     */
+    private async toggleTaskDone(id: string): Promise<void> {
+        const attrs = await getTaskAttrs(id);
+        const already = (attrs[ATTR.done] ?? "").trim();
+        const next = already ? "" : toDateTimeStr(new Date());
+        await setAttrsAndWait(id, { [ATTR.done]: next }, ATTR.done, next);
+    }
+
+    /**
+     * 新建任务文档。
+     *
+     * 落在「任务流收件箱」笔记本里（没有就建一个），打上 custom-task 标记，
+     * 这样才会被视图捞出来（文档数以千计，不打标记的全都不算任务）。
+     */
+    private async createTaskDoc(title: string, due: string | null): Promise<string | null> {
+        const notebook = await ensureTaskNotebook();
+        if (!notebook) {
+            showMessage("任务流：找不到可用的笔记本，无法新建任务", 5000, "error");
+            return null;
+        }
+        const id = await createDocWithMd(notebook, `/${sanitizeTitle(title)}`, `# ${title}\n\n`);
+        if (!id) {
+            showMessage("任务流：新建任务文档失败", 5000, "error");
+            return null;
+        }
+        const patch: Record<string, string> = { [ATTR.task]: "1" };
+        if (due) {
+            patch[ATTR.due] = due;
+        }
+        await setAttrsAndWait(id, patch, ATTR.task, "1");
+        return id;
     }
 
     /** 待处理的一次性焦点请求（面板打开后由面板取走） */
@@ -363,8 +421,11 @@ export default class TaskFlow extends Plugin {
                 return f;
             },
             loadRange: async (from: string, to: string) => {
-                const rows = await runSql<TaskRow>(calendarSql(from, to));
-                return toViewTasks(rows, this.today());
+                const [rows, notebooks] = await Promise.all([
+                    runSql<TaskRow>(calendarSql(from, to)),
+                    this.notebookMap(),
+                ]);
+                return toViewTasks(rows, this.today(), notebooks);
             },
 
             trends: async (today: string, days: number) => {
@@ -391,8 +452,10 @@ export default class TaskFlow extends Plugin {
                 return rows.map((r) => r.name).filter(Boolean);
             },
 
-            toggleDone: (id: string) => this.toggleDone(id),
-            isDone: async (id: string) => isDone(await getBlockKramdown(id)),
+            // ★ 任务 = 文档，文档没有复选框 → 完成状态就是 custom-done 时间戳
+            toggleDone: (id: string) => this.toggleTaskDoneWithRepeat(id),
+            // 任务=文档：完成状态是 custom-done，不再是 [X]
+            isDone: async (id: string) => ((await getTaskAttrs(id))[ATTR.done] ?? "") !== "",
             toast: (m: string) => showMessage(m, 3000),
             now: () => new Date(),
         };
@@ -462,7 +525,3 @@ export default class TaskFlow extends Plugin {
     }
 }
 
-/** kramdown → 切换完成状态后的 kramdown；非任务块返回 null */
-function nextDone(kramdown: string): string | null {
-    return setTaskDone(kramdown, !isDone(kramdown));
-}

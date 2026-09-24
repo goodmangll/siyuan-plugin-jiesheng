@@ -16,7 +16,7 @@ import { Calendar } from "./Calendar";
 import { Matrix } from "./Matrix";
 import { Stats } from "./Stats";
 
-const EMPTY_COUNTS = { today: 0, tomorrow: 0, next7: 0, inbox: 0, all: 0 } as Record<SmartListId, number>;
+const EMPTY_COUNTS = { today: 0, tomorrow: 0, next7: 0, inbox: 0, all: 0, done: 0 } as Record<SmartListId, number>;
 
 export function TabApp({ host, initialView = "today" }: { host: ViewHost; initialView?: ViewId }) {
     const [view, setView] = useState<ViewId>(initialView);

@@ -7,6 +7,7 @@
 
 import { useState } from "react";
 import type { ViewTask } from "./model";
+import { buildTree } from "./tree";
 import type { ViewHost, ViewId } from "./host";
 import { TaskRow } from "./TaskRow";
 
@@ -18,6 +19,15 @@ export function TaskList({ view, tasks, today, host, onChanged }: {
     onChanged: () => void;
 }) {
     const [draft, setDraft] = useState("");
+    // 折叠的节点 id 集合。默认全展开 —— 折起来是用户主动的选择
+    const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+    const toggle = (id: string) => setCollapsed((prev) => {
+        const next = new Set(prev);
+        next.has(id) ? next.delete(id) : next.add(id);
+        return next;
+    });
+    // 子任务=子文档，层级由文档路径决定；父在前、子紧随
+    const nodes = buildTree(tasks, collapsed);
     // 「收件箱」新建的任务不带日期；其它清单新建时按清单语义带上默认日期
     const dueForNew = view === "today" ? today
         : view === "tomorrow" ? addDaysStr(today, 1)
@@ -50,13 +60,23 @@ export function TaskList({ view, tasks, today, host, onChanged }: {
                 />
             </div>
             <div style={{ flex: 1, overflowY: "auto" }} data-tf-list={view}>
-                {tasks.length === 0 ? (
+                {nodes.length === 0 ? (
                     <div style={{ padding: 24, textAlign: "center", opacity: 0.4, fontSize: 13 }}>
                         这里空着
                     </div>
                 ) : (
-                    tasks.map((t) => (
-                        <TaskRow key={t.id} task={t} today={today} host={host} onChanged={onChanged} />
+                    nodes.map((n) => (
+                        <TaskRow
+                            key={n.task.id}
+                            task={n.task}
+                            today={today}
+                            host={host}
+                            onChanged={onChanged}
+                            depth={n.depth}
+                            childCount={n.childCount}
+                            collapsed={n.collapsed}
+                            onToggleCollapse={() => toggle(n.task.id)}
+                        />
                     ))
                 )}
             </div>

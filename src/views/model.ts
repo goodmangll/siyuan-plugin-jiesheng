@@ -7,14 +7,19 @@
 
 import { addDays, parseDate, toDateStr } from "../model/date";
 import { parsePriority, type Priority } from "../model/priority";
-import { taskTitleFromKramdown } from "../model/task";
 
-/** SQL 直接给出的原始行（列名与 views/query.ts 的 SELECT_COLS 对应） */
+/**
+ * SQL 直接给出的原始行（列名与 views/query.ts 的 SELECT_COLS 对应）。
+ *
+ * ★ 任务 = 文档。标题在 `title`（= blocks.content，**文档块的 markdown 是空的**，真机实测）。
+ */
 export interface TaskRow {
     id: string;
-    markdown: string | null;
+    /** 文档标题 */
+    title: string | null;
     hpath: string | null;
-    root_id?: string | null;
+    /** 所在笔记本 id —— 清单的默认来源 */
+    box: string | null;
     updated?: string | null;
     pri: string | null;
     due: string | null;
@@ -22,13 +27,15 @@ export interface TaskRow {
     remind: string | null;
     repeat: string | null;
     lst: string | null;
-    /** 看板分组用 */
-    grp?: string | null;
+    /** 完成时刻；非空即已完成 */
+    done: string | null;
+    /** 置顶标记 */
+    pin: string | null;
 }
 
 export interface ViewTask {
     id: string;
-    /** 已清洗的标题：去掉标记/ial，**只取首行** */
+    /** 文档标题 */
     title: string;
     /** 原始 `yyyyMMdd[HHmm]` */
     due: string | null;
@@ -41,7 +48,12 @@ export interface ViewTask {
     repeat: string | null;
     hasReminder: boolean;
     path: string;
-    rootId: string;
+    /** 所在笔记本 id */
+    box: string;
+    /** 完成时刻（yyyyMMddHHmm）；非空即已完成 */
+    done: string | null;
+    /** 是否置顶 */
+    pinned: boolean;
     isToday: boolean;
     /** 严格早于今天 */
     overdue: boolean;
@@ -53,29 +65,44 @@ function toDay(v: string | null | undefined): string | null {
     return /^\d{8}/.test(s) ? s.slice(0, 8) : null;
 }
 
-export function toViewTask(row: TaskRow, today: string): ViewTask {
+/**
+ * @param notebookName 该文档所在笔记本的名字。清单默认取它（`custom-list` 可覆盖）。
+ */
+export function toViewTask(row: TaskRow, today: string, notebookName?: string): ViewTask {
     const due = (row.due ?? "").trim() || null;
     const day = toDay(due);
     return {
         id: row.id,
-        title: taskTitleFromKramdown(row.markdown ?? ""),
+        // 文档标题直接就是 title，不需要再清洗 kramdown（老模型才要）
+        title: (row.title ?? "").trim(),
         due,
         start: (row.start ?? "").trim() || null,
         day,
         priority: parsePriority(row.pri ?? undefined),
-        list: (row.lst ?? "").trim(),
+        // 清单：显式 custom-list 优先，否则用所在笔记本名
+        list: (row.lst ?? "").trim() || (notebookName ?? "").trim(),
         repeat: (row.repeat ?? "").trim() || null,
         hasReminder: (row.remind ?? "").trim() !== "",
         path: row.hpath ?? "",
-        rootId: row.root_id ?? "",
-        // 逾期按**天**判：今天 14:30 已经过点了也不算逾期（属性里没有"截止时刻已过"这个概念）
+        box: row.box ?? "",
+        done: (row.done ?? "").trim() || null,
+        pinned: (row.pin ?? "").trim() !== "",
+        // 逾期按**天**判：今天 14:30 已经过点了也不算逾期
         overdue: day !== null && day < today,
         isToday: day === today,
     };
 }
 
-export function toViewTasks(rows: TaskRow[] | null | undefined, today: string): ViewTask[] {
-    return (rows ?? []).map((r) => toViewTask(r, today));
+/**
+ * 批量映射。
+ * @param notebooks 笔记本 id → 名字。文档任务默认用它当清单。
+ */
+export function toViewTasks(
+    rows: TaskRow[] | null | undefined,
+    today: string,
+    notebooks?: Record<string, string>,
+): ViewTask[] {
+    return (rows ?? []).map((r) => toViewTask(r, today, r.box ? notebooks?.[r.box] : undefined));
 }
 
 export interface TaskGroup {
