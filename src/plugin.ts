@@ -6,8 +6,8 @@
  */
 import { Plugin, fetchSyncPost, getActiveEditor, showMessage } from "siyuan";
 import {
-    appendBlock, getBlockKramdown, getTaskAttrs, getTaskTitle, insertBlockAfter, resolveTaskBlock,
-    setBlockAttrs, setTransport, updateBlockMarkdown,
+    appendBlock, deleteBlock, getBlockKramdown, getTaskAttrs, getTaskTitle, insertBlockAfter,
+    resolveTaskBlock, setBlockAttrs, setTransport, updateBlockMarkdown,
 } from "./api/blocks";
 import { cursorBlockId, taskBlockIdFromElement, type ProtyleLike } from "./api/dom";
 import type { KernelResponse } from "./api/blocks";
@@ -175,6 +175,9 @@ export default class TaskFlow extends Plugin {
             readAttrs: (id: string) => getTaskAttrs(id),
             writeAttrs: (id: string, patch: Record<string, string>) => setBlockAttrs(id, patch),
             appendSubtask: async (id: string, markdown: string) => { await appendBlock(id, markdown); },
+            title: (id: string) => getTaskTitle(id),
+            openBlock: (id: string) => this.openBlock(id),
+            removeBlock: async (id: string) => { await deleteBlock(id); },
             toggleDone: (id: string) => this.toggleDone(id),
             isDone: async (id: string) => isDone(await getBlockKramdown(id)),
             toast: (m: string) => showMessage(m, 3000),
@@ -211,6 +214,16 @@ export default class TaskFlow extends Plugin {
     }
 
     /** 当前编辑器里光标所在的块 id（未归一化） */
+    /** 跳到某个块：用思源的 URL 协议打开所在文档并定位（3.8.4 里没有 openBlock 全局，这是可用路径） */
+    private openBlock(id: string): void {
+        const w = window as unknown as { openFileByURL?: (u: string) => void };
+        if (typeof w.openFileByURL === "function") {
+            w.openFileByURL(`siyuan://blocks/${id}`);
+            return;
+        }
+        showMessage("任务流：当前前端不支持跳转", 3000, "error");
+    }
+
     private currentBlockId(): string | null {
         try {
             return cursorBlockId(getActiveEditor(true) as unknown as ProtyleLike);

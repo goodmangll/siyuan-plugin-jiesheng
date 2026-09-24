@@ -194,3 +194,8 @@ export async function getTaskTitle(id: string): Promise<string> {
     const m = /^(-\s+(?:\{:[^}]*\}\s*)?)(\[ \]|\[[xX]\])/.exec(first);
     return (m ? first.slice(m[0].length) : first).trim();
 }
+
+/** 删除块（进思源回收站，可恢复） */
+export async function deleteBlock(id: string): Promise<void> {
+    await call<unknown>("/api/block/deleteBlock", { id });
+}

@@ -3,7 +3,9 @@ import { ATTR } from "../../src/model/attrs";
 import {
     REMIND_PRESETS, patchAbandon, patchDue, patchList, patchPriority,
     patchRange, patchRemindAdd, patchRemindClear, patchRemindPreset, patchRemindRemove,
-    patchRepeatClear, patchRepeatPreset, patchRepeatUntil, shiftReminders,
+    patchAllDay, patchRepeatClear, patchRepeatCount, patchRepeatExdateAdd, patchRepeatExdateRemove,
+    patchRepeatFrom, patchRepeatPreset, patchRepeatUntil, patchStart, repeatExdates,
+    repeatRuleUntil, shiftReminders,
 } from "../../src/ui/panelActions";
 
 const NOW = new Date(2026, 8, 25, 10, 0); // 2026-09-25 周五
@@ -29,13 +31,13 @@ describe("U1 日期", () => {
 
 describe("U3 时间段", () => {
     it("同时写 start + due", () => {
-        expect(patchRange("202609250900", "202609251200")).toEqual({
+        expect(patchRange({}, "202609250900", "202609251200")).toEqual({
             [ATTR.start]: "202609250900",
             [ATTR.due]: "202609251200",
         });
     });
     it("任一为空 → 对应键写空串（= 清除）", () => {
-        expect(patchRange("", "202609251200")).toEqual({ [ATTR.start]: "", [ATTR.due]: "202609251200" });
+        expect(patchRange({}, "", "202609251200")).toEqual({ [ATTR.start]: "", [ATTR.due]: "202609251200" });
     });
 });
 
@@ -174,5 +176,165 @@ describe("U16 空属性不抛异常", () => {
         expect(() => patchRepeatUntil({}, null)).not.toThrow();
         expect(() => patchList(null)).not.toThrow();
         expect(() => shiftReminders([], "", "")).not.toThrow();
+    });
+});
+
+// ══════════ 开始时间 / 全天 ══════════
+
+describe("SA 开始时间", () => {
+    it("S1 合法 8 位 → 写入", () => {
+        expect(patchStart("20260920")).toEqual({ [ATTR.start]: "20260920" });
+    });
+    it("S2 合法 12 位 → 写入", () => {
+        expect(patchStart("202609201000")).toEqual({ [ATTR.start]: "202609201000" });
+    });
+    it("S3 空 → 清除", () => {
+        expect(patchStart("")).toEqual({ [ATTR.start]: "" });
+        expect(patchStart(null)).toEqual({ [ATTR.start]: "" });
+    });
+    it("S4 非法 → null，不写坏数据", () => {
+        expect(patchStart("2026-09-20")).toBeNull();
+        expect(patchStart("2026092")).toBeNull();
+        expect(patchStart("abcdefgh")).toBeNull();
+        expect(patchStart("20261345")).toBeNull();
+    });
+});
+
+describe("AD 全天开关", () => {
+    const at = (over = {}) => ({ [ATTR.due]: "202609251430", [ATTR.start]: "202609201000", ...over });
+
+    it("AD1 开全天：12 位 → 8 位（时刻丢掉）", () => {
+        expect(patchAllDay(at(), true)[ATTR.due]).toBe("20260925");
+    });
+    it("AD2 关全天：8 位 → 12 位 09:00", () => {
+        expect(patchAllDay({ [ATTR.due]: "20260925" }, false)[ATTR.due]).toBe("202609250900");
+    });
+    it("AD3 start 同步变形", () => {
+        const p = patchAllDay(at(), true);
+        expect(p[ATTR.start]).toBe("20260920");
+        expect(patchAllDay({ [ATTR.start]: "20260920" }, false)[ATTR.start]).toBe("202609200900");
+    });
+    it("AD4 提醒**不动** —— 日期没变，只有时刻形态变了", () => {
+        const p = patchAllDay(at({ [ATTR.remind]: "202609250900" }), true);
+        expect(p).not.toHaveProperty(ATTR.remind);
+    });
+    it("AD5 没有 due / start 时不炸，也不写多余键", () => {
+        expect(patchAllDay({}, true)).toEqual({});
+    });
+    it("AD6 已经是全天再设全天 → 值不变", () => {
+        expect(patchAllDay({ [ATTR.due]: "20260925" }, true)[ATTR.due]).toBe("20260925");
+    });
+});
+
+// ══════════ 重复：次数 / 排除日期 ══════════
+
+describe("RC 重复次数", () => {
+    const daily = { [ATTR.repeat]: "FREQ=DAILY" };
+    it("RC1 设次数", () => {
+        expect(patchRepeatCount(daily, 3)).toEqual({ [ATTR.repeat]: "FREQ=DAILY;COUNT=3" });
+    });
+    it("RC2 清除次数但保留其它段", () => {
+        expect(patchRepeatCount({ [ATTR.repeat]: "FREQ=WEEKLY;BYDAY=FR;COUNT=5" }, null))
+            .toEqual({ [ATTR.repeat]: "FREQ=WEEKLY;BYDAY=FR" });
+    });
+    it("RC3 非法次数 → null", () => {
+        expect(patchRepeatCount(daily, 0)).toBeNull();
+        expect(patchRepeatCount(daily, -1)).toBeNull();
+        expect(patchRepeatCount(daily, 1.5)).toBeNull();
+    });
+    it("RC4 没有重复规则 → null（UI 该先让用户选重复）", () => {
+        expect(patchRepeatCount({}, 3)).toBeNull();
+    });
+    it("RC5 非法规则 → null，不抛", () => {
+        expect(patchRepeatCount({ [ATTR.repeat]: "FREQ=LUNAR" }, 3)).toBeNull();
+    });
+});
+
+describe("EX 排除日期", () => {
+    const daily = { [ATTR.repeat]: "FREQ=DAILY" };
+    it("EX1 加一个", () => {
+        expect(patchRepeatExdateAdd(daily, "20260926")).toEqual({ [ATTR.repeat]: "FREQ=DAILY;EXDATE=20260926" });
+    });
+    it("EX2 加第二个 → 追加且有序", () => {
+        const p = patchRepeatExdateAdd({ [ATTR.repeat]: "FREQ=DAILY;EXDATE=20260928" }, "20260926");
+        expect(p![ATTR.repeat]).toBe("FREQ=DAILY;EXDATE=20260926,20260928");
+    });
+    it("EX3 加已有的 → 不重复", () => {
+        const p = patchRepeatExdateAdd({ [ATTR.repeat]: "FREQ=DAILY;EXDATE=20260926" }, "20260926");
+        expect(p![ATTR.repeat]).toBe("FREQ=DAILY;EXDATE=20260926");
+    });
+    it("EX4 删一个", () => {
+        const p = patchRepeatExdateRemove({ [ATTR.repeat]: "FREQ=DAILY;EXDATE=20260926,20260928" }, "20260926");
+        expect(p![ATTR.repeat]).toBe("FREQ=DAILY;EXDATE=20260928");
+    });
+    it("EX5 删最后一个 → EXDATE 段整体消失", () => {
+        const p = patchRepeatExdateRemove({ [ATTR.repeat]: "FREQ=DAILY;EXDATE=20260926" }, "20260926");
+        expect(p![ATTR.repeat]).toBe("FREQ=DAILY");
+    });
+    it("EX6 非法日期 → null", () => {
+        expect(patchRepeatExdateAdd(daily, "2026-09-26")).toBeNull();
+        expect(patchRepeatExdateAdd(daily, "2026092")).toBeNull();
+    });
+    it("EX7 读取：没有规则 / 没有排除日期都返回空数组", () => {
+        expect(repeatExdates(daily)).toEqual([]);
+        expect(repeatExdates({})).toEqual([]);
+        expect(repeatExdates({ [ATTR.repeat]: "FREQ=DAILY;EXDATE=20260926,20260928" }))
+            .toEqual(["20260926", "20260928"]);
+    });
+});
+
+describe("RF 递推基准", () => {
+    it("RF1 设为完成日", () => {
+        expect(patchRepeatFrom("done")).toEqual({ [ATTR.repeatFrom]: "done" });
+    });
+    it("RF2 设为截止日（默认）→ 写空串即移除该属性", () => {
+        expect(patchRepeatFrom("due")).toEqual({ [ATTR.repeatFrom]: "" });
+    });
+    it("RF3 非法值一律按默认（due）处理", () => {
+        expect(patchRepeatFrom("banana")).toEqual({ [ATTR.repeatFrom]: "" });
+    });
+});
+
+describe("RU 读取 UNTIL", () => {
+    it("有 UNTIL 时读出", () => {
+        expect(repeatRuleUntil({ [ATTR.repeat]: "FREQ=DAILY;UNTIL=20261231" })).toBe("20261231");
+    });
+    it("没有规则 / 没有 UNTIL → undefined", () => {
+        expect(repeatRuleUntil({})).toBeUndefined();
+        expect(repeatRuleUntil({ [ATTR.repeat]: "FREQ=DAILY" })).toBeUndefined();
+    });
+});
+
+describe("PR 直接编辑开始/截止（T13：改日期必须让提醒跟着走）", () => {
+    const withRemind = {
+        [ATTR.due]: "202609251430",
+        [ATTR.remind]: "202609240900",
+    };
+    it("PR1 截止日期变了 → 提醒按同 delta 平移", () => {
+        const p = patchRange(withRemind, "", "20260927");
+        expect(p[ATTR.due]).toBe("20260927");
+        // 9/25 → 9/27 是 +2 天
+        expect(p[ATTR.remind]).toBe("202609260900");
+    });
+    it("PR2 只改开始时间、截止不变 → 提醒不动", () => {
+        const p = patchRange(withRemind, "202609201000", "202609251430");
+        expect(p[ATTR.start]).toBe("202609201000");
+        expect(p).not.toHaveProperty(ATTR.remind);
+    });
+    it("PR3 清除截止 → 提醒也清掉（否则会指向一个不存在的日期）", () => {
+        const p = patchRange(withRemind, "", "");
+        expect(p[ATTR.due]).toBe("");
+        expect(p[ATTR.remind]).toBe("");
+    });
+    it("PR4 没有提醒时不多写键", () => {
+        const p = patchRange({ [ATTR.due]: "20260925" }, "", "20260927");
+        expect(p).not.toHaveProperty(ATTR.remind);
+    });
+    it("PR5 原来没有 due（首次设）→ 提醒不动，不误平移", () => {
+        const p = patchRange({ [ATTR.remind]: "202609240900" }, "", "20260927");
+        expect(p).not.toHaveProperty(ATTR.remind);
+    });
+    it("PR6 开始时间也带时刻时原样写入", () => {
+        expect(patchRange({}, "202609201000", "")[ATTR.start]).toBe("202609201000");
     });
 });
