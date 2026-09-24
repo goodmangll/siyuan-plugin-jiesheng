@@ -13,7 +13,7 @@ import { countSelectedBlocks } from "./api/dom";
 import { createTaskIn, ensureInboxDoc, setAttrsAndWait } from "./api/views";
 import { runSql } from "./api/blocks";
 import { mountTab, type TabHandle } from "./views/mountTab";
-import { boardSql, countSql, listSql, listsSql, smartListIds, type SmartListId } from "./views/query";
+import { calendarSql, countSql, listsSql, smartListIds, sqlForView, type SmartListId } from "./views/query";
 import { toViewTasks, type TaskRow } from "./views/model";
 import type { ViewHost, ViewId } from "./views/host";
 import { patchList, patchPriority, patchRange } from "./ui/panelActions";
@@ -173,16 +173,20 @@ export default class TaskFlow extends Plugin {
         }
     }
 
+    /** 今天（yyyyMMdd） */
+    private today(): string {
+        return toDateStr(new Date());
+    }
+
     /** 视图层的宿主实现：取数 / 写数都在这一层，组件不碰思源 API */
     private buildViewHost(): ViewHost {
         return {
             today: () => toDateStr(new Date()),
 
             load: async (view: ViewId, today: string) => {
-                const stmt = view === "board"
-                    ? boardSql({ today })
-                    : listSql(view, { today });
-                return toViewTasks(await runSql<TaskRow>(stmt), today);
+                // 分发在 views/query.sqlForView 里（纯函数、已测）——
+                // 每个视图都必须有归宿，漏一个就是真机上的「未知的智能清单」
+                return toViewTasks(await runSql<TaskRow>(sqlForView(view, today)), today);
             },
 
             counts: async (today: string) => {
@@ -191,6 +195,11 @@ export default class TaskFlow extends Plugin {
                     return [id, rows[0]?.c ?? 0] as const;
                 }));
                 return Object.fromEntries(pairs) as Record<SmartListId, number>;
+            },
+
+            loadRange: async (from: string, to: string) => {
+                const rows = await runSql<TaskRow>(calendarSql(from, to));
+                return toViewTasks(rows, this.today());
             },
 
             lists: async () => {
@@ -323,6 +332,11 @@ export default class TaskFlow extends Plugin {
                 this.pendingFocus = null;
                 return f;
             },
+            loadRange: async (from: string, to: string) => {
+                const rows = await runSql<TaskRow>(calendarSql(from, to));
+                return toViewTasks(rows, this.today());
+            },
+
             lists: async () => {
                 const rows = await runSql<{ name: string }>(listsSql());
                 return rows.map((r) => r.name).filter(Boolean);

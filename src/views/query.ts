@@ -154,3 +154,22 @@ export function listsSql(): string {
 where name='custom-list' and value is not null and value != ''
 order by value`;
 }
+
+/** 组件自己会按天 / 按象限分组的视图 —— 取数时就是「全部未完成」 */
+const CLIENT_GROUPED = ["calendar", "matrix", "stats"];
+
+/**
+ * 视图 id → SQL。**所有视图都必须在这里有归宿。**
+ *
+ * 漏一个的代价是真机上的「未知的智能清单」—— 曾经只特判了 board，
+ * 日历和四象限直接掉进 listSql 的兜底断言里炸掉。
+ */
+export function sqlForView(view: string, today: string): string {
+    if (view === "board") {
+        return boardSql({ today });
+    }
+    if (CLIENT_GROUPED.includes(view)) {
+        return listSql("all", { today });
+    }
+    return listSql(view, { today });
+}
