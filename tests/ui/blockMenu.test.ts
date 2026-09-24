@@ -7,14 +7,17 @@ const NOW = new Date(2026, 8, 25, 10, 0);
 function makeDeps(over: Partial<BlockMenuDeps> = {}) {
     const written: { id: string; patch: Record<string, string> }[] = [];
     const opened: string[] = [];
+    const calls = { promoted: [] as string[], demoted: [] as string[] };
     const deps: BlockMenuDeps = {
         now: () => NOW,
         readAttrs: async () => ({ [ATTR.due]: "20260925" }),
         writeAttrs: async (id, patch) => { written.push({ id, patch }); },
         openPanel: (id) => { opened.push(id); },
+        promoteToTask: async (id) => { calls.promoted.push(id); },
+        demoteFromTask: async (id) => { calls.demoted.push(id); },
         ...over,
     };
-    return { deps, written, opened };
+    return { deps, written, opened, calls };
 }
 
 describe("B4 非任务块不挂菜单", () => {
@@ -33,14 +36,27 @@ describe("B4 非任务块不挂菜单", () => {
 });
 
 describe("B1/B2 菜单项", () => {
-    it("挂上 9 项，label 与要求一致", () => {
+    it("挂上 11 项，label 与要求一致（加了「转为任务」「不再作为任务」）", () => {
         const { deps } = makeDeps();
         const items = buildBlockMenuItems("TASK", deps);
         expect(items.map((i) => i.label)).toEqual([
             "今天", "明天", "后天", "清除日期",
             "优先级 高", "优先级 中", "优先级 低", "清除优先级",
             "打开任务面板",
+            "转为任务（建文档）", "不再作为任务",
         ]);
+    });
+    it("「不再作为任务」= 同类产品的「转为笔记」：只去掉标记，内容不动", async () => {
+        const { deps, calls } = makeDeps();
+        const item = buildBlockMenuItems("TASK", deps).find((i) => i.label === "不再作为任务");
+        await item!.click();
+        expect(calls.demoted).toEqual(["TASK"]);
+    });
+    it("「转为任务」把块升格成文档", async () => {
+        const { deps, calls } = makeDeps();
+        const item = buildBlockMenuItems("TASK", deps).find((i) => i.label === "转为任务（建文档）");
+        await item!.click();
+        expect(calls.promoted).toEqual(["TASK"]);
     });
     it("每项都有 icon 与 click", () => {
         const { deps } = makeDeps();

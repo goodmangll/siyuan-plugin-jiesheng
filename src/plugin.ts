@@ -25,6 +25,7 @@ import type { ViewHost, ViewId } from "./views/host";
 import { patchList, patchPriority, patchRange } from "./ui/panelActions";
 import { toDateStr } from "./model/date";
 import { ATTR } from "./model/attrs";
+import { splitTaskBlock } from "./model/body";
 import { toDateTimeStr } from "./model/date";
 import { cursorBlockId, taskBlockIdFromElement, type ProtyleLike } from "./api/dom";
 import type { KernelResponse } from "./api/blocks";
@@ -446,8 +447,45 @@ export default class TaskFlow extends Plugin {
                 this.openDock();
                 void id;
             },
+            // ★ 任务 = 文档 → 老模型的 - [ ] 块不再是任务。
+            //   「转为任务」= 把这个块升格成一个任务文档（建文档 → 搬内容 → 删原块）。
+            promoteToTask: (id: string) => this.promoteBlockToTask(id),
+            // 「不再作为任务」= 同类产品的「转为笔记」：去掉标记，内容全留着
+            demoteFromTask: async (id: string) => {
+                await setAttrsAndWait(id, { [ATTR.task]: "" }, ATTR.task, "");
+                showMessage("已不再作为任务（内容都留着）", 3000);
+            },
             onError: (m: string) => showMessage("任务流：" + m, 4000, "error"),
         };
+    }
+
+    /**
+     * 把一个 `- [ ]` 块升格成任务文档。
+     *
+     * 顺序很关键：**先建文档，成功了再删原块** —— 反过来的话，
+     * 建文档失败就丢内容了。
+     */
+    private async promoteBlockToTask(blockId: string): Promise<void> {
+        const notebook = await ensureTaskNotebook();
+        if (!notebook) {
+            showMessage("任务流：找不到可用的笔记本", 4000, "error");
+            return;
+        }
+        const kr = await getBlockKramdown(blockId);
+        const { title, body } = splitTaskBlock(kr);
+        if (!title) {
+            showMessage("任务流：这个块没有标题，无法转为任务", 4000, "error");
+            return;
+        }
+        const newId = await createDocWithMd(notebook, `/${sanitizeTitle(title)}`, body);
+        if (!newId) {
+            showMessage("任务流：建文档失败，原内容未改动", 4000, "error");
+            return;
+        }
+        await setAttrsAndWait(newId, { [ATTR.task]: "1" }, ATTR.task, "1");
+        // 文档建好了才删原块
+        await deleteBlock(blockId);
+        showMessage("已转为任务：" + title, 3000);
     }
 
     /** 面板宿主：全部通过 api 层，面板本身不碰思源 API */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bodyBlocks, bodySummary, cleanDocBody, stripFrontmatter, type ChildBlock } from "../../src/model/body";
+import { bodyBlocks, bodySummary, cleanDocBody, splitTaskBlock, stripFrontmatter, type ChildBlock } from "../../src/model/body";
 
 const c = (id: string, type: string, text: string, subtype = ""): ChildBlock =>
     ({ id, type, subtype, text });
@@ -97,5 +97,33 @@ describe("B4 cleanDocBody：导出正文里要去掉「自动加的标题 h1」�
     it("空输入 → 空串", () => {
         expect(cleanDocBody("", "甲")).toBe("");
         expect(cleanDocBody(null as never, "甲")).toBe("");
+    });
+});
+
+describe("B5 把 - [ ] 块升格成任务文档：块 → 标题 + 正文", () => {
+    it("单行：只有标题", () => {
+        expect(splitTaskBlock("- [ ] 买牛奶")).toEqual({ title: "买牛奶", body: "" });
+    });
+    it("带缩进子块：子块成为正文", () => {
+        const kr = "- [ ] 写周报\n\n  这里是正文\n\n  - [ ] 步骤一";
+        const r = splitTaskBlock(kr);
+        expect(r.title).toBe("写周报");
+        expect(r.body).toContain("这里是正文");
+        expect(r.body).toContain("步骤一");
+        // 正文里不能带任务标记
+        expect(r.body).not.toContain("- [ ] 写周报");
+    });
+    it("已经完成的块也行", () => {
+        expect(splitTaskBlock("- [X] 买牛奶").title).toBe("买牛奶");
+    });
+    it("带 ial 的行", () => {
+        expect(splitTaskBlock('- {: id="A"}[ ] 买牛奶').title).toBe("买牛奶");
+    });
+    it("不是任务块 → title 取首行", () => {
+        expect(splitTaskBlock("普通段落")).toEqual({ title: "普通段落", body: "" });
+    });
+    it("空输入不炸", () => {
+        expect(splitTaskBlock("")).toEqual({ title: "", body: "" });
+        expect(splitTaskBlock(null as never)).toEqual({ title: "", body: "" });
     });
 });
