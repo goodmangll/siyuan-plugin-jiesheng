@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
-    appendBlock, firstInnerParagraph, getTaskAttrs, insertBlockAfter, isSubtaskBlock, isTaskBlock,
+    appendBlock, deleteBlock, firstInnerParagraph, getTaskAttrs, insertBlockAfter, isSubtaskBlock, isTaskBlock,
     resolveTaskBlock,
     setBlockAttrs, setTransport, type KernelResponse,
 } from "../../src/api/blocks";
@@ -196,5 +196,14 @@ describe("insertBlockAfter", () => {
     it("拿不到 id → null，不抛", async () => {
         install((url) => (url === "/api/block/insertBlock" ? ok([]) : ok(null)));
         expect(await insertBlockAfter("PREV", "- [ ] x")).toBeNull();
+    });
+});
+
+describe("deleteBlock", () => {
+    it("调到 /api/block/deleteBlock 并带上 id", async () => {
+        install((url) => (url === "/api/block/deleteBlock" ? ok(null) : ok(null)));
+        await deleteBlock("T1");
+        expect(calls[0].url).toBe("/api/block/deleteBlock");
+        expect(calls[0].data).toEqual({ id: "T1" });
     });
 });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-    formatOffsets, fromICalTrigger, offsetToAbsolute, parseOffsets, toICalTrigger,
+    formatOffsets, fromICalTrigger, offsetToAbsolute, parseOffsets, shiftReminders, toICalTrigger,
 } from "../../src/model/remind";
 
 describe("M1 偏移 → 绝对时刻", () => {
@@ -92,5 +92,37 @@ describe("M3 改 due 后重算", () => {
     it("同一个偏移，due 变了结果就变", () => {
         expect(offsetToAbsolute("20260925", "-2d09:00")).toBe("202609230900");
         expect(offsetToAbsolute("20261001", "-2d09:00")).toBe("202609290900");
+    });
+});
+
+describe("SR 提醒平移的两种语义（从现有值反推原始偏移）", () => {
+    // 起因：PR1 实测发现「全天 ⇄ 有时刻」混用时，纯按分钟平移会把提醒挪错一天
+    it("SR1 日级偏移（提前1天09:00）+ 全天→全天：按天平移，钟点不动", () => {
+        // due 9/25，提醒 9/24 09:00；改 due 到 9/27 → 提醒 9/26 09:00
+        expect(shiftReminders(["202609240900"], "20260925", "20260927")).toEqual(["202609260900"]);
+    });
+    it("SR2 日级偏移 + 有时刻 due 改成全天：仍按天平移（这是修掉的 bug）", () => {
+        // due 9/25 14:30，提醒 9/24 09:00；改 due 到 9/27（全天）
+        // 纯按分钟会得到 9/25 18:30（错），按天应得 9/26 09:00
+        expect(shiftReminders(["202609240900"], "202609251430", "20260927")).toEqual(["202609260900"]);
+    });
+    it("SR3 日级偏移 + 全天改成有时刻：同样按天", () => {
+        expect(shiftReminders(["202609240900"], "20260925", "202609271800")).toEqual(["202609260900"]);
+    });
+    it("SR4 分钟级偏移（提前5分钟）+ 同一天改时刻：按分钟平移", () => {
+        // due 9/25 14:30，提醒 14:25；改 due 到 18:00 → 17:55
+        expect(shiftReminders(["202609251425"], "202609251430", "202609251800")).toEqual(["202609251755"]);
+    });
+    it("SR5 日级偏移 + 同一天只改时刻：提醒不动（偏移是按天的）", () => {
+        // due 9/25 14:30 → 18:00，提醒仍是 9/24 09:00
+        expect(shiftReminders(["202609240900"], "202609251430", "202609251800")).toEqual(["202609240900"]);
+    });
+    it("SR6 分钟级偏移 + 跨天改期：跟着走", () => {
+        // due 9/25 14:30，提醒 14:25；改 due 到 9/27 14:30 → 9/27 14:25
+        expect(shiftReminders(["202609251425"], "202609251430", "202609271430")).toEqual(["202609271425"]);
+    });
+    it("SR7 多条混着日级和分钟级，各按各的语义", () => {
+        const got = shiftReminders(["202609240900", "202609251425"], "202609251430", "202609271800");
+        expect(got).toEqual(["202609260900", "202609271755"]);
     });
 });

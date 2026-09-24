@@ -5,14 +5,16 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { ATTR, toMeta } from "../model/attrs";
+import { isAllDay } from "../model/date";
 import { priorityLabel, type Priority } from "../model/priority";
 import { PRESETS } from "../model/repeat";
 import type { PresetId } from "../model/repeat";
 import {
     REMIND_PRESETS, patchAbandon, patchDue, patchList, patchPriority, patchRange,
     patchRemindAdd, patchRemindClear, patchRemindPreset, patchRemindRemove,
-    patchRepeatClear, patchRepeatPreset, patchRepeatUntil, subtaskMarkdown,
-    type Patch,
+    patchAllDay, patchRepeatClear, patchRepeatCount, patchRepeatExdateAdd, patchRepeatExdateRemove,
+    patchRepeatFrom, patchRepeatPreset, patchRepeatUntil, repeatExdates, repeatRuleUntil,
+    subtaskMarkdown, type Patch,
 } from "./panelActions";
 
 export interface TaskPanelHost {
@@ -22,6 +24,12 @@ export interface TaskPanelHost {
     writeAttrs(id: string, patch: Patch): Promise<void>;
     /** 在任务项内部追加一个子任务 */
     appendSubtask(id: string, markdown: string): Promise<void>;
+    /** 读任务标题（kramdown 首行） */
+    title(id: string): Promise<string>;
+    /** 跳到该块（打开所在文档并定位） */
+    openBlock(id: string): void;
+    /** 删除块（进回收站） */
+    removeBlock(id: string): Promise<void>;
     /** 完成状态 */
     toggleDone(id: string): Promise<void>;
     isDone(id: string): Promise<boolean>;
@@ -44,6 +52,10 @@ function fromInputValue(v: string): string {
     const m = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}))?$/.exec(v);
     return m ? m[1] + m[2] + m[3] + (m[4] ? m[4] + m[5] : "") : "";
 }
+/** 输入框里的「全天」勾选状态：没有 due 也当作全天（默认新任务就是全天） */
+function isAllDayValue(v: string | undefined): boolean {
+    return !v || isAllDay(v);
+}
 function pretty(v: string | undefined): string {
     if (!v) return "—";
     const d = v.length >= 12
@@ -56,20 +68,25 @@ export function TaskPanel({ host, onReady }: { host: TaskPanelHost; onReady?: (r
     const [blockId, setBlockId] = useState<string | null>(null);
     const [attrs, setAttrs] = useState<Record<string, string>>({});
     const [done, setDone] = useState(false);
+    const [title, setTitle] = useState("");
     const [subtask, setSubtask] = useState("");
     const [repeatId, setRepeatId] = useState<PresetId>("daily");
     const [customAt, setCustomAt] = useState("");
+    const [countText, setCountText] = useState("");
+    const [exdate, setExdate] = useState("");
 
     const reload = useCallback(async (id?: string | null) => {
         const target = id ?? await host.currentBlockId();
         setBlockId(target);
         if (!target) {
             setAttrs({});
+            setTitle("");
             return;
         }
         try {
             setAttrs(await host.readAttrs(target));
             setDone(await host.isDone(target));
+            setTitle(await host.title(target));
         } catch {
             setAttrs({});
         }
@@ -116,7 +133,17 @@ export function TaskPanel({ host, onReady }: { host: TaskPanelHost; onReady?: (r
 
     return (
         <div className="task-flow-panel" style={{ padding: "10px 12px", fontSize: 13, lineHeight: 1.7 }}>
-            <div style={{ fontWeight: 600, marginBottom: 8 }}>任务</div>
+            <div style={{ display: "flex", alignItems: "center", marginBottom: 8 }}>
+                <span style={{ fontWeight: 600, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {title || "任务"}
+                </span>
+                <a
+                    style={{ fontSize: 12, opacity: 0.6, cursor: "pointer", flex: "0 0 auto" }}
+                    onClick={() => host.openBlock(blockId)}
+                >
+                    跳转到块
+                </a>
+            </div>
 
             {/* 日期 */}
             <div style={rowStyle}>
@@ -130,16 +157,27 @@ export function TaskPanel({ host, onReady }: { host: TaskPanelHost; onReady?: (r
                 <span style={labelStyle} />
                 <span style={{ opacity: 0.6, marginRight: 6 }}>截止</span>
                 <input
-                    className="b3-text-field" style={fieldStyle} value={toInputValue(attrs[ATTR.due])}
-                    onChange={(e) => void apply(patchRange(attrs[ATTR.start] ?? "", fromInputValue(e.target.value)))}
+                    key={`due-${blockId}-${attrs[ATTR.due] ?? ""}`}
+                    className="b3-text-field" style={fieldStyle} defaultValue={toInputValue(attrs[ATTR.due])}
+                    placeholder="yyyy-MM-dd 或 yyyy-MM-ddTHH:mm"
+                    onBlur={(e) => void apply(patchRange(attrs, attrs[ATTR.start] ?? "", fromInputValue(e.target.value)))}
                 />
+                <label style={{ marginLeft: 8, fontSize: 12, opacity: 0.8, whiteSpace: "nowrap" }}>
+                    <input
+                        type="checkbox" style={{ verticalAlign: "middle", marginRight: 3 }}
+                        checked={!attrs[ATTR.due] || isAllDayValue(attrs[ATTR.due])}
+                        onChange={(e) => void apply(patchAllDay(attrs, e.target.checked))}
+                    />全天
+                </label>
             </div>
             <div style={rowStyle}>
                 <span style={labelStyle} />
                 <span style={{ opacity: 0.6, marginRight: 6 }}>开始</span>
                 <input
-                    className="b3-text-field" style={fieldStyle} value={toInputValue(attrs[ATTR.start])}
-                    onChange={(e) => void apply(patchRange(fromInputValue(e.target.value), attrs[ATTR.due] ?? ""))}
+                    key={`start-${blockId}-${attrs[ATTR.start] ?? ""}`}
+                    className="b3-text-field" style={fieldStyle} defaultValue={toInputValue(attrs[ATTR.start])}
+                    placeholder="yyyy-MM-dd 或 yyyy-MM-ddTHH:mm"
+                    onBlur={(e) => void apply(patchRange(attrs, fromInputValue(e.target.value), attrs[ATTR.due] ?? ""))}
                 />
             </div>
 
@@ -210,12 +248,64 @@ export function TaskPanel({ host, onReady }: { host: TaskPanelHost; onReady?: (r
                 <span style={{ opacity: 0.6, marginRight: 6 }}>结束于</span>
                 <input
                     className="b3-text-field" style={fieldStyle} placeholder="yyyy-MM-dd 或留空 = 一直"
-                    onChange={(e) => {
+                    defaultValue={toInputValue(repeatRuleUntil(attrs))}
+                    key={`until-${blockId}-${repeatRuleUntil(attrs) ?? ""}`}
+                    onBlur={(e) => {
                         const v = fromInputValue(e.target.value);
                         void apply(patchRepeatUntil(attrs, v || null), "请先设置重复规则");
                     }}
                 />
             </div>
+            <div style={rowStyle}>
+                <span style={labelStyle} />
+                <span style={{ opacity: 0.6, marginRight: 6 }}>共</span>
+                <input
+                    className="b3-text-field" style={{ ...fieldStyle, width: "4em" }} placeholder="不限"
+                    value={countText}
+                    onChange={(e) => setCountText(e.target.value)}
+                />
+                <span style={{ opacity: 0.6, margin: "0 6px" }}>次</span>
+                <button
+                    className="b3-button b3-button--outline" style={btn}
+                    onClick={() => {
+                        const n = countText.trim() === "" ? null : Number(countText.trim());
+                        void apply(patchRepeatCount(attrs, n), "次数要 ≥ 1 的整数；请先设置重复规则");
+                        setCountText("");
+                    }}
+                >设定</button>
+                <span style={{ opacity: 0.6, marginLeft: 6 }}>从</span>
+                <select
+                    className="b3-select" style={fieldStyle}
+                    value={attrs[ATTR.repeatFrom] ?? "due"}
+                    onChange={(e) => void apply(patchRepeatFrom(e.target.value))}
+                >
+                    <option value="due">截止日</option>
+                    <option value="done">完成日</option>
+                </select>
+                <span style={{ opacity: 0.6, marginLeft: 6 }}>递推</span>
+            </div>
+            <div style={rowStyle}>
+                <span style={labelStyle} />
+                <span style={{ opacity: 0.6, marginRight: 6 }}>跳过</span>
+                <input
+                    className="b3-text-field" style={{ ...fieldStyle, width: "8.5em" }} placeholder="yyyyMMdd"
+                    value={exdate} onChange={(e) => setExdate(e.target.value)}
+                />
+                <button
+                    className="b3-button b3-button--outline" style={{ ...btn, marginLeft: 4 }}
+                    onClick={() => { void apply(patchRepeatExdateAdd(attrs, exdate), "日期格式不对；请先设置重复规则"); setExdate(""); }}
+                >加</button>
+            </div>
+            {repeatExdates(attrs).length > 0 && (
+                <div style={{ marginLeft: "3.5em", marginBottom: 6 }}>
+                    {repeatExdates(attrs).map((d) => (
+                        <div key={d} style={{ fontSize: 12 }}>
+                            <span style={{ opacity: 0.7 }}>{pretty(d)}</span>
+                            <a style={{ marginLeft: 6, cursor: "pointer", opacity: 0.6 }} onClick={() => void apply(patchRepeatExdateRemove(attrs, d))}>删除</a>
+                        </div>
+                    ))}
+                </div>
+            )}
 
             {/* 清单 */}
             <div style={rowStyle}>
@@ -252,6 +342,13 @@ export function TaskPanel({ host, onReady }: { host: TaskPanelHost; onReady?: (r
                 <button className="b3-button b3-button--outline" style={btn} onClick={() => void apply(patchAbandon(!meta.abandoned))}>
                     {meta.abandoned ? "取消放弃" : "放弃"}
                 </button>
+                <button
+                    className="b3-button b3-button--outline" style={{ ...btn, color: "var(--b3-theme-error)" }}
+                    onClick={() => {
+                        if (!window.confirm("删除这个任务？会进思源回收站，可以恢复。")) return;
+                        void host.removeBlock(blockId);
+                    }}
+                >删除</button>
                 <button className="b3-button b3-button--outline" style={btn} onClick={() => void reload()}>刷新</button>
             </div>
             <div style={{ fontSize: 11, opacity: 0.45 }}>{blockId}</div>

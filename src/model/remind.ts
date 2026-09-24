@@ -236,20 +236,45 @@ export function shiftReminders(
 ): string[] {
     const from = parseDate(oldDue);
     const to = parseDate(newDue);
-    if (!from || !to || (reminders ?? []).length === 0) {
-        return [...(reminders ?? [])];
+    const list = reminders ?? [];
+    if (!from || !to || list.length === 0 || from.getTime() === to.getTime()) {
+        return [...list];
     }
-    const deltaMin = Math.round((to.getTime() - from.getTime()) / 60000);
-    if (deltaMin === 0) {
-        return [...reminders];
-    }
-    return reminders.map((r) => {
+
+    const dayDelta = dayDiff(from, to);
+    return list.map((r) => {
         const d = parseDate(r);
         if (!d) {
             return r;
         }
-        return fmt(new Date(d.getTime() + deltaMin * 60000));
+        if (isSameDay(d, from)) {
+            // **同一天**的提醒 = 「提前 5 分钟」「准点」这类 —— 用户想的是
+            // 「离截止差多久」，所以保持与 due 的相对距离，due 挪多少它挪多少。
+            const offsetMin = Math.round((d.getTime() - from.getTime()) / 60000);
+            return fmt(new Date(to.getTime() + offsetMin * 60000));
+        }
+        // **不同天**的提醒 = 「提前 N 天 09:00」这类 —— 用户想的是
+        // 「在截止日前第 N 天的 09:00」，所以按天平移、**钟点不动**。
+        //
+        // 为什么必须和上面分开：我们只存绝对时刻，原始偏移已经丢了。
+        // 若一律按分钟挪，把「9/25 14:30」改成全天的「9/27」会算出 +2天9.5小时，
+        // 提醒被推到 9/26 18:30 这种毫无意义的位置（真机实测踩到过）。
+        const shifted = new Date(d.getTime());
+        shifted.setDate(shifted.getDate() + dayDelta);
+        return fmt(shifted);
     });
+}
+
+/** 是否同一个自然日 */
+function isSameDay(a: Date, b: Date): boolean {
+    return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+
+/** 相差几个自然日（按本地日历天算，避开时刻与夏令时干扰） */
+function dayDiff(a: Date, b: Date): number {
+    const da = Date.UTC(a.getFullYear(), a.getMonth(), a.getDate());
+    const db = Date.UTC(b.getFullYear(), b.getMonth(), b.getDate());
+    return Math.round((db - da) / 86400000);
 }
 
 function fmt(d: Date): string {

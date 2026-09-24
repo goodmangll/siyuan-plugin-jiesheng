@@ -49,9 +49,98 @@ export function patchDue(attrs: Attrs, kind: DueKind, now: Date): Patch {
     return patch;
 }
 
-/** 时间段：同时给开始与截止 */
-export function patchRange(start: string, due: string): Patch {
-    return { [ATTR.start]: (start ?? "").trim(), [ATTR.due]: (due ?? "").trim() };
+/**
+ * 时间段：同时给开始与截止（面板里直接编辑两个输入框时走这里）。
+ *
+ * **必须和 `patchDue` 一样处理提醒平移** —— 提醒存的是绝对时刻，
+ * 截止日改了而提醒不动，用户看到的「提前 1 天 09:00」就变成了无意义的时刻。
+ * 这条曾经漏掉过：面板按钮改日期会平移，手输日期不会。
+ */
+export function patchRange(attrs: Attrs, start: string, due: string): Patch {
+    const oldDue = attrs[ATTR.due];
+    const newDue = (due ?? "").trim();
+    const patch: Patch = { [ATTR.start]: (start ?? "").trim(), [ATTR.due]: newDue };
+
+    const existing = parseOffsets(attrs[ATTR.remind]);
+    if (existing.length === 0) {
+        return patch;
+    }
+    if (newDue === "") {
+        // 截止日没了，提醒指向一个不存在的日期 —— 一并清掉
+        patch[ATTR.remind] = "";
+        return patch;
+    }
+    if (oldDue === newDue) {
+        return patch;
+    }
+    const shifted = shiftReminders(existing, oldDue, newDue);
+    if (shifted.join(" ") !== existing.join(" ")) {
+        patch[ATTR.remind] = formatOffsets(shifted);
+    }
+    return patch;
+}
+
+/** 关掉「全天」时补的默认时刻 */
+export const DEFAULT_TIME = "0900";
+
+/** 开始时间：`yyyyMMdd` / `yyyyMMddHHmm`；空 = 清除。非法输入返回 null（不写坏数据）。 */
+export function patchStart(value: string | null | undefined): Patch | null {
+    const v = (value ?? "").trim();
+    if (v === "") {
+        return { [ATTR.start]: "" };
+    }
+    if (!isValidInputDate(v)) {
+        return null;
+    }
+    return { [ATTR.start]: v };
+}
+
+/**
+ * 全天开关。
+ *
+ * 「全天」不是单独存的字段 —— **它就是 due 的形态**：8 位 = 全天，12 位 = 有时刻。
+ * 所以这里只做形态转换：开 → 砍掉时刻；关 → 补上 `DEFAULT_TIME`。
+ *
+ * **提醒不动**：日期没变，只有时刻形态变了。若这里去调 shiftReminders，
+ * 会把 14:30 的 due 变成全天后算出 -14.5 小时的偏移，把提醒整体挪到前一天去。
+ */
+export function patchAllDay(attrs: Attrs, allDay: boolean): Patch {
+    const patch: Patch = {};
+    for (const key of [ATTR.due, ATTR.start]) {
+        const v = attrs[key];
+        if (!v) {
+            continue;
+        }
+        if (allDay) {
+            patch[key] = v.slice(0, 8);
+        } else if (isAllDay(v)) {
+            patch[key] = v.slice(0, 8) + DEFAULT_TIME;
+        }
+    }
+    return patch;
+}
+
+/** 校验用户输入的日期串（8 或 12 位，且真的是个日期） */
+function isValidInputDate(v: string): boolean {
+    if (!/^(\d{8}|\d{12})$/.test(v)) {
+        return false;
+    }
+    const y = Number(v.slice(0, 4));
+    const m = Number(v.slice(4, 6));
+    const d = Number(v.slice(6, 8));
+    if (m < 1 || m > 12 || d < 1 || d > 31) {
+        return false;
+    }
+    const probe = new Date(y, m - 1, d);
+    if (probe.getFullYear() !== y || probe.getMonth() !== m - 1 || probe.getDate() !== d) {
+        return false;
+    }
+    if (v.length === 12) {
+        const hh = Number(v.slice(8, 10));
+        const mi = Number(v.slice(10, 12));
+        return hh <= 23 && mi <= 59;
+    }
+    return true;
 }
 
 // ── 优先级 ───────────────────────────────────────────────────────────────────
@@ -143,6 +232,66 @@ export function patchRepeatUntil(attrs: Attrs, until: string | null): Patch | nu
         next.until = until;
     } else {
         delete next.until;
+    }
+    return { [ATTR.repeat]: formatRule(next) };
+}
+
+/** 递推基准：`done`（从完成日）或其它（一律按默认 `due`） */
+export function patchRepeatFrom(value: string | null | undefined): Patch {
+    return { [ATTR.repeatFrom]: (value ?? "").trim() === "done" ? "done" : "" };
+}
+
+/** 读取重复规则里的 UNTIL，给面板输入框回显用 */
+export function repeatRuleUntil(attrs: Attrs): string | undefined {
+    return parseRule(attrs[ATTR.repeat] ?? "")?.until;
+}
+
+/** 重复次数：null = 不限。次数要 ≥ 1（0 次意味着这条根本不该存在）。 */
+export function patchRepeatCount(attrs: Attrs, count: number | null): Patch | null {
+    const rule = parseRule(attrs[ATTR.repeat] ?? "");
+    if (!rule) {
+        return null;
+    }
+    const next = { ...rule };
+    if (count === null) {
+        delete next.count;
+    } else if (!Number.isInteger(count) || count < 1) {
+        return null;
+    } else {
+        next.count = count;
+    }
+    return { [ATTR.repeat]: formatRule(next) };
+}
+
+/** 排除日期：加一个（幂等、自动排序） */
+export function patchRepeatExdateAdd(attrs: Attrs, date: string): Patch | null {
+    if (!/^\d{8}$/.test((date ?? "").trim())) {
+        return null;
+    }
+    return withExdate(attrs, (list) => [...list, date.trim()]);
+}
+
+/** 排除日期：删一个 */
+export function patchRepeatExdateRemove(attrs: Attrs, date: string): Patch | null {
+    return withExdate(attrs, (list) => list.filter((x) => x !== (date ?? "").trim()));
+}
+
+/** 读取当前的排除日期，给 UI 列表用 */
+export function repeatExdates(attrs: Attrs): string[] {
+    return parseRule(attrs[ATTR.repeat] ?? "")?.exDate ?? [];
+}
+
+function withExdate(attrs: Attrs, fn: (list: string[]) => string[]): Patch | null {
+    const rule = parseRule(attrs[ATTR.repeat] ?? "");
+    if (!rule) {
+        return null;
+    }
+    const uniq = [...new Set(fn(rule.exDate ?? []))].sort();
+    const next = { ...rule };
+    if (uniq.length) {
+        next.exDate = uniq;
+    } else {
+        delete next.exDate;
     }
     return { [ATTR.repeat]: formatRule(next) };
 }
