@@ -6,8 +6,8 @@
  */
 import { Plugin, fetchSyncPost, getActiveEditor, showMessage } from "siyuan";
 import {
-    appendBlock, getBlockKramdown, getTaskAttrs, resolveTaskBlock, setBlockAttrs, setTransport,
-    updateBlockMarkdown,
+    appendBlock, getBlockKramdown, getTaskAttrs, getTaskTitle, insertBlockAfter, resolveTaskBlock,
+    setBlockAttrs, setTransport, updateBlockMarkdown,
 } from "./api/blocks";
 import { cursorBlockId, taskBlockIdFromElement, type ProtyleLike } from "./api/dom";
 import type { KernelResponse } from "./api/blocks";
@@ -15,6 +15,7 @@ import { COMMANDS, type TaskCommandDeps } from "./commands";
 import { mountTaskPanel, type TaskPanelHandle } from "./ui/mountPanel";
 import { buildBlockMenuItems, type BlockMenuDeps } from "./ui/blockMenu";
 import { isDone, setTaskDone } from "./model/task";
+import { generateNextRepeat, type GenerateDeps } from "./generate";
 
 
 const DOCK_TYPE = "taskFlowDock";
@@ -117,6 +118,41 @@ export default class TaskFlow extends Plugin {
         this.panel = null;
     }
 
+    /** 切换完成状态；刚变成完成时触发生成重复任务 */
+    private async toggleDone(id: string): Promise<void> {
+        const kr = await getBlockKramdown(id);
+        const wasDone = isDone(kr);
+        const next = nextDone(kr);
+        if (next) {
+            await updateBlockMarkdown(id, next);
+        }
+        if (!wasDone) {
+            await this.afterCompleted(id);
+        }
+    }
+
+    /** 完成之后：如果有重复规则，生成下一个 */
+    private async afterCompleted(id: string): Promise<void> {
+        try {
+            await generateNextRepeat(id, this.buildGenerateDeps());
+        } catch (e) {
+            // 生成失败不影响「完成任务」本身
+            showMessage("任务流：" + ((e as Error)?.message ?? "重复生成失败"), 4000, "error");
+        }
+    }
+
+    /** 重复生成的宿主 */
+    private buildGenerateDeps(): GenerateDeps {
+        return {
+            now: () => new Date(),
+            readAttrs: (id: string) => getTaskAttrs(id),
+            readTitle: (id: string) => getTaskTitle(id),
+            insertAfter: (prev: string, md: string) => insertBlockAfter(prev, md),
+            writeAttrs: (id: string, patch: Record<string, string>) => setBlockAttrs(id, patch),
+            toast: (m: string) => showMessage(m, 3500),
+        };
+    }
+
     /** 块标菜单宿主 */
     private buildBlockMenuDeps(): BlockMenuDeps {
         return {
@@ -139,13 +175,7 @@ export default class TaskFlow extends Plugin {
             readAttrs: (id: string) => getTaskAttrs(id),
             writeAttrs: (id: string, patch: Record<string, string>) => setBlockAttrs(id, patch),
             appendSubtask: async (id: string, markdown: string) => { await appendBlock(id, markdown); },
-            toggleDone: async (id: string) => {
-                const kr = await getBlockKramdown(id);
-                const next = nextDone(kr);
-                if (next) {
-                    await updateBlockMarkdown(id, next);
-                }
-            },
+            toggleDone: (id: string) => this.toggleDone(id),
             isDone: async (id: string) => isDone(await getBlockKramdown(id)),
             toast: (m: string) => showMessage(m, 3000),
             now: () => new Date(),
@@ -169,6 +199,7 @@ export default class TaskFlow extends Plugin {
                 this.panel?.refresh();
                 this.openDock();
             },
+            onCompleted: (id: string) => this.afterCompleted(id),
             toast: (m) => showMessage(m, 3000),
         };
     }

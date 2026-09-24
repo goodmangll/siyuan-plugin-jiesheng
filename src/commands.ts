@@ -28,6 +28,8 @@ export interface TaskCommandDeps {
     openPanel(id: string, focus?: string): void;
     /** 轻提示 */
     toast?(message: string): void;
+    /** 任务**刚变成完成**时回调（重复任务生成挂在这里） */
+    onCompleted?(id: string): Promise<void> | void;
 }
 
 export interface TaskCommand {
@@ -124,12 +126,22 @@ export async function toggleDone(deps: TaskCommandDeps): Promise<void> {
         deps.toast?.("任务流：当前块不是任务");
         return;
     }
-    const next = setTaskDone(kr, !isDone(kr));
+    const wasDone = isDone(kr);
+    const next = setTaskDone(kr, !wasDone);
     if (next === null) {
         deps.toast?.("任务流：无法切换完成状态");
         return;
     }
     await deps.writeKramdown(id, next);
+
+    // 刚变成「完成」时才触发生成；取消完成不该生成
+    if (!wasDone && deps.onCompleted) {
+        try {
+            await deps.onCompleted(id);
+        } catch {
+            // 生成失败不能让「完成任务」这个动作失败
+        }
+    }
 }
 
 /** 打开任务面板 */

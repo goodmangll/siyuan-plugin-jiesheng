@@ -8,45 +8,18 @@
 import { ATTR } from "../model/attrs";
 import { addDays, isAllDay, parseDate, toDateStr } from "../model/date";
 import { priorityAttr, type Priority } from "../model/priority";
-import { formatOffsets, offsetToAbsolute, parseOffsets } from "../model/remind";
+import { formatOffsets, offsetToAbsolute, parseOffsets, shiftReminders } from "../model/remind";
 import { formatRule, fromPreset, parseRule, type PresetId } from "../model/repeat";
 
 export type Attrs = Record<string, string>;
+
+// shiftReminders 已经挪到 model/remind（model 不该依赖 ui）；这里转出去保持调用方不变
+export { shiftReminders } from "../model/remind";
 export type Patch = Record<string, string>;
 
 // ── 日期 ─────────────────────────────────────────────────────────────────────
 
 export type DueKind = "today" | "tomorrow" | "dayAfter" | "clear";
-
-/**
- * 提醒平移：due 变了多少，提醒就跟着挪多少。
- *
- * 这是「存绝对时刻」这个决定的**代价补偿**：用户看到的语义是「提前 2 天」，
- * 换了截止日之后提醒要跟着走。不做这一步，提醒就会原地不动，语义就断了。
- */
-export function shiftReminders(reminders: string[], oldDue: string | null | undefined, newDue: string | null | undefined): string[] {
-    const from = parseDate(oldDue);
-    const to = parseDate(newDue);
-    if (!from || !to || reminders.length === 0) {
-        return [...reminders];
-    }
-    const deltaMin = Math.round((to.getTime() - from.getTime()) / 60000);
-    if (deltaMin === 0) {
-        return [...reminders];
-    }
-    return reminders.map((r) => {
-        const d = parseDate(r);
-        if (!d) {
-            return r;
-        }
-        return fmt(new Date(d.getTime() + deltaMin * 60000));
-    });
-}
-
-const pad = (n: number) => String(n).padStart(2, "0");
-function fmt(d: Date): string {
-    return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}${pad(d.getHours())}${pad(d.getMinutes())}`;
-}
 
 /**
  * 日期补丁。**保留原来的形态**：全天进全天出，有时刻进有时刻出。

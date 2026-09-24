@@ -21,6 +21,7 @@ export const ATTR = {
     pri: "custom-pri",
     remind: "custom-remind",
     repeat: "custom-repeat",
+    repeatFrom: "custom-repeat-from",
     list: "custom-list",
     done: "custom-done",
     abandoned: "custom-abandoned",
@@ -37,6 +38,8 @@ export interface TaskMeta {
     /** 绝对时刻列表，`yyyyMMddHHmm` */
     remind: string[];
     repeat: RepeatRule | null;
+    /** `due`（从截止日递推，默认）或 `done`（从完成日递推） */
+    repeatFrom?: string;
     list?: string;
     done?: string;
     abandoned: boolean;
@@ -85,6 +88,7 @@ export function toMeta(attrs: Record<string, string>): TaskMeta {
         pri: parsePriority(readAttr(attrs, ATTR.pri)),
         remind: parseOffsets(readAttr(attrs, ATTR.remind)),
         repeat: repeatRaw ? parseRule(repeatRaw) : null,
+        repeatFrom: readAttr(attrs, ATTR.repeatFrom),
         list: readAttr(attrs, ATTR.list),
         done: isValidDateStr(done) ? done : undefined,
         abandoned: readAttr(attrs, ATTR.abandoned) === "1",
@@ -102,6 +106,7 @@ export function toAttrPatch(patch: Partial<{
     pri: string | null;
     remind: string[] | null;
     repeat: string | null;
+    repeatFrom: string | null;
     list: string | null;
     done: string | null;
     abandoned: boolean | null;
@@ -125,6 +130,9 @@ export function toAttrPatch(patch: Partial<{
     }
     if ("repeat" in patch) {
         put(ATTR.repeat, patch.repeat ?? null);
+    }
+    if ("repeatFrom" in patch) {
+        put(ATTR.repeatFrom, patch.repeatFrom ?? null);
     }
     if ("list" in patch) {
         put(ATTR.list, patch.list ?? null);

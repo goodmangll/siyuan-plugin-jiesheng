@@ -221,3 +221,38 @@ export function fromICalTrigger(trigger: string | null | undefined): string | nu
     const mm = String(timeOfDay % 60).padStart(2, "0");
     return `${dayShift < 0 ? "-" : ""}${Math.abs(dayShift)}d${hh}:${mm}`;
 }
+
+/**
+ * 提醒平移：截止日变了多少，提醒就跟着挪多少。
+ *
+ * 这是「存绝对时刻」这个决定的**代价补偿**：用户看到的语义是「提前 2 天」，
+ * 换了截止日之后提醒要跟着走。不做这一步，提醒就会原地不动，语义就断了。
+ * 面板改日期、重复任务递推，两处都要用。
+ */
+export function shiftReminders(
+    reminders: string[],
+    oldDue: string | null | undefined,
+    newDue: string | null | undefined,
+): string[] {
+    const from = parseDate(oldDue);
+    const to = parseDate(newDue);
+    if (!from || !to || (reminders ?? []).length === 0) {
+        return [...(reminders ?? [])];
+    }
+    const deltaMin = Math.round((to.getTime() - from.getTime()) / 60000);
+    if (deltaMin === 0) {
+        return [...reminders];
+    }
+    return reminders.map((r) => {
+        const d = parseDate(r);
+        if (!d) {
+            return r;
+        }
+        return fmt(new Date(d.getTime() + deltaMin * 60000));
+    });
+}
+
+function fmt(d: Date): string {
+    return `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}${p2(d.getHours())}${p2(d.getMinutes())}`;
+}
+const p2 = (n: number): string => String(n).padStart(2, "0");

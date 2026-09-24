@@ -123,3 +123,23 @@ V11 消息文本包含标题、提醒时刻、优先级
 V12 事件按 remindAt 升序输出（推送顺序稳定）
 V13 通道接口的最小形状：id / label / configKeys / send
 ```
+
+---
+
+# M5 测试清单（重复任务生成）
+
+```
+W1  repeatFrom=due（默认）：从原截止日递推
+W2  隔周不漂移：due 9/25(周五) → 10/9（不是 10/2）
+W3  repeatFrom=done：从完成日递推（与 due 无关）
+W4  UNTIL 已过 → 系列结束，返回 null
+W5  COUNT：生成后递减；递减到 0 后不再生成
+W6  EXDATE 命中的日期跳过
+W7  **提醒按与 due 相同的 delta 平移**（不这么做，「提前2天」的语义在第二次生成时就断了）
+W8  start 同样按 delta 平移
+W9  没有 repeat → null（不是重复任务）
+W10 非法 repeat → null
+W11 没有 due：以完成日为基准，并在结果里给出算出的 due
+W12 新的 repeat 串里 COUNT 已递减
+W13 不继承 done / abandoned / spent（生成的是全新未完成任务）
+```
