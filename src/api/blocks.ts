@@ -128,3 +128,33 @@ export async function createDocWithMd(notebook: string, path: string, markdown: 
 export async function removeDocByID(id: string): Promise<void> {
     await call<null>("/api/filetree/removeDocByID", { id });
 }
+
+/**
+ * 把一个块归一化成「它所属的任务项」。
+ *
+ * 为什么需要：**光标通常落在段落块上，不在列表项块上**。
+ * 结构是 `i(任务) > [ p(正文) , l > i(子任务) > p ]`，所以从光标处最多向上走两层。
+ * 子任务向上找到的是它自己的 `i`，不会跑到父任务 —— 因为它的直接父级就是自己的 `i`。
+ */
+export async function resolveTaskBlock(id: string, maxUp = 3): Promise<string | null> {
+    interface Row { id: string; type: string; subtype: string; parent_id: string }
+    let rows = await sql<Row>(`select id, type, subtype, parent_id from blocks where id='${id}' limit 1`);
+    if (!rows.length) {
+        return null;
+    }
+    let cur = rows[0];
+    for (let i = 0; i < maxUp; i++) {
+        if (cur.type === "i" && cur.subtype === "t") {
+            return cur.id;
+        }
+        if (!cur.parent_id) {
+            return null;
+        }
+        rows = await sql<Row>(`select id, type, subtype, parent_id from blocks where id='${cur.parent_id}' limit 1`);
+        if (!rows.length) {
+            return null;
+        }
+        cur = rows[0];
+    }
+    return cur.type === "i" && cur.subtype === "t" ? cur.id : null;
+}
