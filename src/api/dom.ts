@@ -38,3 +38,21 @@ export function cursorBlockId(activeEditor?: ProtyleLike | null): string | null 
     const scope = activeEditor?.wysiwyg?.element;
     return cursorBlockIdFrom(scope ?? document);
 }
+
+/**
+ * 从块元素向上找「所属的任务列表项」。
+ *
+ * 纯同步、纯 DOM —— 因为块标菜单（`click-blockicon`）是同步事件，
+ * 菜单项必须在回调返回前加进去，不能先 await 再查库。
+ *
+ * 用 `closest` 向上找，所以嵌套任务会命中**最近的那一层**，正是我们要的。
+ */
+export const TASK_ITEM_SELECTOR = '[data-node-id][data-subtype="t"]';
+
+export function taskBlockIdFromElement(el: Element | null | undefined): string | null {
+    if (!el || typeof el.closest !== "function") {
+        return null;
+    }
+    const li = el.closest(TASK_ITEM_SELECTOR) as HTMLElement | null;
+    return li?.dataset?.nodeId ?? null;
+}
