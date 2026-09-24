@@ -1,8 +1,11 @@
 /**
- * 内核插件：提醒守护的**调度骨架**。
+ * 内核插件：提醒守护。
  *
- * 只做骨架，不含任何具体推送通道：
- *   扫库 → 算到期事件 → 交给 CHANNELS 分发（当前为空）→ 记日志 → 推进游标
+ *   扫库 → 算到期事件 → 交给 CHANNELS 分发 → 记日志 → 推进游标
+ *
+ * **通道分工**：内核负责 **webhook**（界面关着也能发）；
+ * 思源内提示与桌面通知在前端跑（goja 没有 DOM，弹不了通知）。
+ * 配置由前端写进同一个设置文件，内核读它
  *
  * 运行在思源内核进程里的 goja 运行时（M0 实测：`setInterval` 可用，`require` 只有 url/util，
  * 读写文件必须走 `siyuan.storage`）。
@@ -33,14 +36,15 @@ declare const siyuan: {
         put(path: string, content: string): Promise<void>;
     };
     client: {
+        /** ⚠️ 只能调**思源自己的** API：path 必须以 `/` 开头 */
         fetch(path: string, init?: { method?: string; headers?: Record<string, string>; body?: string }):
             Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
     };
+
 };
 
 const TICK_MS = 60_000;
 const STATE_PATH = "remind-state.json";
-const EMPTY_CONFIG: ChannelConfig = {};
 
 /**
  * 已注册的推送通道。
@@ -49,7 +53,75 @@ const EMPTY_CONFIG: ChannelConfig = {};
  * 就是往这个数组里加一个 `NotifyChannel` 实现，再在配置里给它一份 config。
  * 空数组时这个守护**只记日志、不产生任何副作用**，可以安全地跑着。
  */
-export const CHANNELS: NotifyChannel[] = [];
+export const SETTINGS_PATH = "settings.json";
+
+interface Settings { webhook?: string }
+
+/** 读设置文件；坏掉/不存在都回落成"没有 webhook"，不抛 */
+async function loadSettings(): Promise<Settings> {
+    try {
+        const obj = await siyuan.storage.get(SETTINGS_PATH);
+        const text = await obj.text();
+        return JSON.parse(text) as Settings;
+    } catch {
+        return {};
+    }
+}
+
+/** webhook 形态校验（和前端 settings.ts 同一套规则，两边必须一致） */
+function usableWebhook(url: string | undefined): string | null {
+    const u = (url ?? "").trim();
+    return /^https?:\/\/\S+$/i.test(u) ? u : null;
+}
+
+/**
+ * 通用 webhook 通道。
+ *
+ * 不做具体厂商适配（企业微信/Server酱/Bark 各家 payload 不同）——
+ * 发的是**结构化 JSON**，用户那边用自己现有的转发（N8N / 自建）接一层即可。
+ * 这样插件不需要持有任何人的 key。
+ */
+export const webhookChannel: NotifyChannel = {
+    id: "webhook",
+    label: "通用 Webhook",
+    configKeys: () => ["webhook"],
+    async send(event, cfg) {
+        const url = usableWebhook(typeof cfg.webhook === "string" ? cfg.webhook : undefined);
+        if (!url) {
+            return { ok: false, detail: "未配置 webhook" };
+        }
+        try {
+            // ★ goja 内核里**没有 fetch、没有 XMLHttpRequest**（真机探针确认：
+            //   siyuan.fetch / globalThis.fetch / XMLHttpRequest 全是 undefined）。
+            //   唯一能发出站的路径是思源的**转发代理**：
+            //   用 siyuan.client.fetch 调 /api/network/forwardProxy，
+            //   由内核进程替我们把请求发出去（真机验证：目标服务器确实收到了）。
+            const res = await siyuan.client.fetch("/api/network/forwardProxy", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    url,
+                    method: "POST",
+                    contentType: "application/json",
+                    payload: JSON.stringify(remindPayload(event)),
+                    headers: [],
+                    timeout: 10_000,
+                }),
+            });
+            const body = await res.json() as { code?: number; msg?: string; data?: { status?: number } };
+            if (body?.code !== 0) {
+                return { ok: false, detail: body?.msg ?? `forwardProxy code=${body?.code}` };
+            }
+            const status = body?.data?.status ?? 0;
+            // 转发代理自己返回 200，真正的目标状态在 data.status 里
+            return { ok: status >= 200 && status < 300, detail: `HTTP ${status}` };
+        } catch (e) {
+            return { ok: false, detail: String((e as Error)?.message ?? e) };
+        }
+    },
+};
+
+export const CHANNELS: NotifyChannel[] = [webhookChannel];
 
 interface KernelState {
     /** 已推送到哪个时刻（`yyyyMMddHHmm`） */
@@ -132,19 +204,20 @@ export async function tick(): Promise<void> {
     }
     state.seen += events.length;
 
-    // 分发（CHANNELS 为空时没有任何副作用，只在这里留证据）
-    const results = await dispatch(CHANNELS, EMPTY_CONFIG, events[0]);
+    // 配置每轮现读 —— 改完设置不用重启内核
+    const settings = await loadSettings();
+    // ChannelConfig 是「通道 id → 该通道的配置键值」两层结构
+    const config: ChannelConfig = { webhook: { webhook: settings.webhook ?? "" } };
+
     for (const ev of events) {
         await siyuan.logger.info(
             `[task-flow] 提醒到点 ${formatRemindMessage(ev)} payload=${JSON.stringify(remindPayload(ev))}`,
         );
-    }
-    if (CHANNELS.length > 0) {
+        const results = await dispatch(CHANNELS, config, ev);
         for (const r of results) {
+            // 通道失败**不影响**其它事件、也不影响游标推进（下一条还要发）
             await siyuan.logger.info(`[task-flow] 通道 ${r.channelId} ok=${r.ok} ${r.detail ?? ""}`);
         }
-    } else {
-        await siyuan.logger.info("[task-flow] 未注册任何推送通道，仅记录（抽象层已就位）");
     }
 
     state.cursor = advanceCursor(state.cursor, events);

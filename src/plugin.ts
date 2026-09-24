@@ -16,7 +16,7 @@ import {
 } from "./api/views";
 import { callKernel, createDocWithMd, runSql } from "./api/blocks";
 import { mountTab, type TabHandle } from "./views/mountTab";
-import { calendarSql, countSql, listsSql, smartListIds, sqlForView, type SmartListId } from "./views/query";
+import { calendarSql, countSql, listsSql, remindCandidatesSql, smartListIds, sqlForView, type SmartListId } from "./views/query";
 import {
     createdTrendSql, doneTrendSql, fillSeries, listDistSql, priorityDistSql, recentDays,
 } from "./views/stats";
@@ -27,6 +27,9 @@ import { toDateStr } from "./model/date";
 import { ATTR } from "./model/attrs";
 import { splitTaskBlock } from "./model/body";
 import { createFollowScheduler, selectionIsInEditor } from "./ui/follow";
+import { runReminderScan } from "./ui/reminderRunner";
+import { DEFAULT_SETTINGS, type TaskFlowSettings } from "./settings";
+import { loadSettings } from "./api/settings";
 import { toDateTimeStr } from "./model/date";
 import { cursorBlockId, taskBlockIdFromElement, type ProtyleLike } from "./api/dom";
 import type { KernelResponse } from "./api/blocks";
@@ -174,6 +177,17 @@ export default class TaskFlow extends Plugin {
             });
         } catch (e) {
             showMessage("任务流：Tab 注册失败 —— " + (e as Error).message, 6000, "error");
+        }
+
+        // ── 前端提醒：思源内提示 + 桌面通知 ──
+        // 内核不能弹通知（goja 没有 DOM），所以这一段必须在前端跑。
+        // 两边各有游标是**刻意的**：界面关着时前端不跑，共用游标会导致
+        // 关了三天再打开被历史提醒刷屏。
+        try {
+            await this.loadSettingsOnce();
+            this.startReminderScan();
+        } catch (e) {
+            showMessage("任务流：提醒启动失败 —— " + (e as Error).message, 5000, "error");
         }
 
         // 在编辑器里点一下就解除卡片固定，否则面板会一直停在上次点的那条
@@ -343,6 +357,10 @@ export default class TaskFlow extends Plugin {
     }
 
     onunload(): void {
+        if (this.remindTimer !== null) {
+            window.clearInterval(this.remindTimer);
+            this.remindTimer = null;
+        }
         this.panel?.unmount();
         this.panel = null;
     }
@@ -369,6 +387,69 @@ export default class TaskFlow extends Plugin {
         } catch (e) {
             // 生成失败不影响「完成任务」本身
             showMessage("任务流：" + ((e as Error)?.message ?? "重复生成失败"), 4000, "error");
+        }
+    }
+
+    /** 读一次设置（前端启动时调） */
+    private async loadSettingsOnce(): Promise<void> {
+        this.settings = await loadSettings();
+    }
+
+    /**
+     * 启动前端提醒扫描。每 60 秒一轮，和内核心跳同频。
+     *
+     * 首次运行会把游标设成当前时刻，**不补推历史** —— 否则一打开思源
+     * 历史提醒会一次性全炸出来。
+     */
+    private startReminderScan(): void {
+        const CURSOR_KEY = "task-flow-remind-cursor";
+        const tick = async (): Promise<void> => {
+            try {
+                const r = await runReminderScan({
+                    now: () => toDateTimeStr(new Date()),
+                    readCursor: () => window.localStorage.getItem(CURSOR_KEY),
+                    writeCursor: (c) => window.localStorage.setItem(CURSOR_KEY, c),
+                    loadCandidates: async () => {
+                        const rows = await runSql<{
+                            id: string; title: string | null; remind: string | null;
+                            due: string | null; pri: string | null; lst: string | null;
+                        }>(remindCandidatesSql());
+                        return rows.map((x) => ({
+                            id: x.id, title: x.title, remind: x.remind,
+                            due: x.due, pri: x.pri, lst: x.lst,
+                        }));
+                    },
+                    toast: (m: string) => showMessage(m, 6000),
+                    notifyDesktop: (t: string, b: string) => this.notifyDesktop(t, b),
+                    wantsInApp: () => this.settings.inApp !== false,
+                    wantsDesktop: () => this.settings.desktop !== false,
+                });
+                if (r.fired > 0) {
+                    console.log(`[task-flow] 前端推了 ${r.fired} 条提醒，游标=${r.cursor}`);
+                }
+            } catch (e) {
+                console.log("[task-flow] 提醒扫描出错: " + String((e as Error)?.message ?? e));
+            }
+        };
+        void tick();
+        this.remindTimer = window.setInterval(() => { void tick(); }, 60_000);
+    }
+
+    /**
+     * 桌面通知。
+     *
+     * 权限要在**用户手势**里请求，这里只在已授权时发 —— 否则浏览器会静默丢弃，
+     * 表现为"设置开了但没通知"，很难查。
+     */
+    private notifyDesktop(title: string, body: string): void {
+        try {
+            const N = (window as unknown as { Notification?: typeof Notification }).Notification;
+            if (!N || N.permission !== "granted") {
+                return;
+            }
+            new N(title, { body, tag: "task-flow-" + body.slice(0, 24) });
+        } catch {
+            /* 通知失败不影响其它通道 */
         }
     }
 
@@ -423,6 +504,10 @@ export default class TaskFlow extends Plugin {
         await setAttrsAndWait(id, patch, ATTR.task, "1");
         return id;
     }
+
+    /** 前端提醒扫描的定时器 */
+    private remindTimer: number | null = null;
+    private settings: TaskFlowSettings = { ...DEFAULT_SETTINGS };
 
     /** 待处理的一次性焦点请求（面板打开后由面板取走） */
     private pendingFocus: string | null = null;

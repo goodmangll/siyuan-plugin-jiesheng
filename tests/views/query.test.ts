@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
     attr, boardSql, calendarSql, countSql, doneSql, doneTasksWhere, listSql, listsSql, openTasksWhere,
-    SELECT_COLS, smartListIds, sqlForView, tagsSql, TASK_MARK,
+    remindCandidatesSql, SELECT_COLS, smartListIds, sqlForView, tagsSql, TASK_MARK,
 } from "../../src/views/query";
 
 const TODAY = "20260925";
@@ -203,5 +203,25 @@ describe("Q10 标签（思源原生 #tag#，存在 spans 表里）", () => {
     });
     it("标签子查询不会拖垮主查询（是用 group_concat 聚合成一个字符串）", () => {
         expect(SELECT_COLS).toMatch(/group_concat/i);
+    });
+});
+
+describe("Q11 提醒候选 SQL（前端与内核共用一份，避免两套漂移）", () => {
+    it("只取任务文档、未完成、有提醒、未放弃", () => {
+        const s = remindCandidatesSql();
+        expect(s).toContain("b.type='d'");
+        expect(s).toContain("custom-task");
+        expect(s).toContain("custom-remind");
+        expect(s).toContain("custom-done");
+        expect(s).toContain("custom-abandoned");
+    });
+    it("不许出现 b.due / b.pri 这类（走 attributes 子查询）", () => {
+        expect(remindCandidatesSql()).not.toMatch(/\bb\.(due|pri|remind|done|abandoned)\b/);
+    });
+    it("要给出前端弹通知需要的字段", () => {
+        const s = remindCandidatesSql();
+        for (const col of ["as title", "as remind", "as due", "as pri", "as lst"]) {
+            expect(s).toContain(col);
+        }
     });
 });
