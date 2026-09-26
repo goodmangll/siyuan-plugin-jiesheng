@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
     attr, boardSql, calendarSql, countSql, doneSql, doneTasksWhere, listSql, listsSql, openTasksWhere,
-    remindCandidatesSql, SELECT_COLS, smartListIds, smartListsOf, sqlForView, tagsSql, TASK_MARK } from "../../src/views/query";
+    applyLocalDone, remindCandidatesSql, SELECT_COLS, smartListIds, smartListsOf, sqlForView, tagsSql, TASK_MARK } from "../../src/views/query";
 
 const TODAY = "20260925";
 
@@ -276,5 +276,60 @@ describe("smartListsOf：任务属于哪些智能清单", () => {
     it("已完成但超出 14 天 → 哪个清单都不进", () => {
         expect(smartListsOf({ done: "202609011200", due: "20260901" }, TODAY))
             .toEqual([]);
+    });
+});
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * applyLocalDone —— 本地完成态叠加
+ *
+ * 存在的理由：思源的属性写入对 SQL 有约 1.3 秒的可见延迟，而 `ws-main`
+ * 在索引完成之前就通知视图刷新。这期间 SQL 快照比本地旧，信它就会「回退」。
+ * ──────────────────────────────────────────────────────────────────────────── */
+describe("applyLocalDone：本地完成态盖住旧快照", () => {
+    const T = "20260926";
+    const mk = (id: string, done: string | null, due: string | null = T) => ({ id, done, due });
+
+    it("本地已完成、SQL 还说未完成 → 从「今天」移走", () => {
+        const rows = [mk("a", null)];
+        const local = new Map([["a", mk("a", "202609262300")]]);
+        expect(applyLocalDone(rows, "today", T, local)).toEqual([]);
+    });
+
+    it("本地已完成、SQL 里还完全没有 → 补进「已完成」，且排最前", () => {
+        const rows = [mk("b", "202609261000"), mk("c", "202609261100")];
+        const local = new Map([["a", mk("a", "202609262300")]]);
+        expect(applyLocalDone(rows, "done", T, local).map((x) => x.id)).toEqual(["a", "b", "c"]);
+    });
+
+    it("本地没有的行走 SQL 原值", () => {
+        const rows = [mk("a", null), mk("b", null)];
+        const local = new Map([["a", mk("a", "202609262300")]]);
+        expect(applyLocalDone(rows, "all", T, local).map((x) => x.id)).toEqual(["b"]);
+    });
+
+    it("取消完成（本地 done 置空）→ 立刻回到「全部」", () => {
+        const rows: { id: string; done: string | null; due: string | null }[] = [];
+        const local = new Map([["a", mk("a", null)]]);
+        expect(applyLocalDone(rows, "all", T, local).map((x) => x.id)).toEqual(["a"]);
+    });
+
+    it("本地为空时原样返回（热路径，别多做一次拷贝）", () => {
+        const rows = [mk("a", null)];
+        const out = applyLocalDone(rows, "today", T, new Map());
+        expect(out).toBe(rows);
+    });
+
+    it("非智能清单（看板/日历）只覆盖、不按归属过滤", () => {
+        const rows = [mk("a", null)];
+        const local = new Map([["a", mk("a", "202609262300")]]);
+        // 看板不按 done 归属过滤，所以这一行还在，只是 done 被本地盖掉
+        expect(applyLocalDone(rows, "board", T, local)).toEqual([mk("a", "202609262300")]);
+    });
+
+    it("归属按本地完成态重算：完成任务后不再属于「今天」", () => {
+        const rows = [mk("a", null), mk("b", null)];
+        const local = new Map([["a", mk("a", "202609262300")]]);
+        expect(applyLocalDone(rows, "today", T, local).map((x) => x.id)).toEqual(["b"]);
+        expect(applyLocalDone(rows, "done", T, local).map((x) => x.id)).toEqual(["a"]);
     });
 });
