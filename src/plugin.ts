@@ -11,7 +11,7 @@
  */
 
 import { Plugin, fetchSyncPost, getActiveEditor, openTab, showMessage } from "siyuan";
-import { cursorBlockId, taskBlockIdFromElement, type ProtyleLike } from "./api/dom";
+import { blockHitFromElement, cursorBlockId, type ProtyleLike } from "./api/dom";
 import { callKernel, setTransport, type KernelResponse } from "./api/blocks";
 import { COMMANDS } from "./commands";
 import { DEFAULT_SETTINGS, type TaskFlowSettings } from "./settings";
@@ -23,10 +23,14 @@ import { mountTaskPanel, type TaskPanelHandle } from "./ui/mountPanel";
 import { openSettingsDialog } from "./ui/settingsDialog";
 import { resolveTaskBlock } from "./api/blocks";
 import { buildBlockMenuItems } from "./ui/blockMenu";
+import { injectTaskMenu } from "./ui/blockMenuDom";
 import { generateNextRepeat } from "./generate";
 import * as actions from "./plugin/actions";
 import { createSession } from "./plugin/session";
 import { createReminderDaemon, notifyDesktop } from "./plugin/reminder";
+import { createTaskIndex, type TaskIndex } from "./plugin/taskIndex";
+import { isTaskDataChange } from "./views/txFilter";
+import { runSql } from "./api/blocks";
 import {
     buildBlockMenuDeps, buildCommandDeps, buildPanelHost, buildViewHost, type HostDeps,
 } from "./plugin/hosts";
@@ -44,6 +48,21 @@ export default class TaskFlow extends Plugin {
 
     private transportReady = false;
     private settings: TaskFlowSettings = { ...DEFAULT_SETTINGS };
+
+    /**
+     * 任务 id 的**同步**索引（块标菜单要同步判断「这个文档是不是任务」）。
+     * 见 plugin/taskIndex.ts 里的说明 —— 不加它菜单里就根本没有「任务」这一项。
+     */
+    private taskIndex: TaskIndex = createTaskIndex({
+        load: async () => {
+            const rows = await runSql<{ id: string }>(
+                `select b.id from blocks b where b.type='d' and
+                 exists (select 1 from attributes a where a.block_id=b.id and a.name='custom-task' and a.value='1')`,
+            );
+            return rows.map((r) => r.id);
+        },
+        onError: (e) => console.log("[task-flow] 任务索引刷新失败: " + e.message),
+    });
 
     /** 笔记本表缓存：几乎不变，但每次 load 都拉一次是白花一个 IPC */
     private notebookCache: { at: number; map: Record<string, string> } | null = null;
@@ -94,6 +113,7 @@ export default class TaskFlow extends Plugin {
             afterCompleted: (id) => this.afterCompleted(id),
             createTask: (title, due) => this.createTask(title, due),
             promoteToTask: (id) => this.promoteToTask(id),
+            forgetTask: (id) => this.taskIndex.forget(id),
             transportReady: () => this.transportReady,
             toast: (m, ms) => showMessage(m, ms ?? 3000),
             errorToast: (m) => showMessage(m, 4000, "error"),
@@ -114,6 +134,16 @@ export default class TaskFlow extends Plugin {
                 },
             });
         }
+
+        // 任务索引：块标菜单要**同步**知道某个文档是不是任务
+        await this.taskIndex.refresh();
+
+        // 任务索引跟着「任务数据真的变了」刷新（和视图用同一个信号，见 views/txFilter）
+        this.eventBus.on("ws-main", (event: CustomEvent) => {
+            if (isTaskDataChange(event?.detail)) {
+                void this.taskIndex.refresh();
+            }
+        });
 
         this.setupFollow();
         this.setupBlockMenu(deps);
@@ -179,25 +209,40 @@ export default class TaskFlow extends Plugin {
     private setupBlockMenu(deps: HostDeps): void {
         this.eventBus.on("click-blockicon", (event) => {
             try {
-                const { menu, blockElements } = event.detail;
-                const taskId = taskBlockIdFromElement(blockElements?.[0] ?? null);
-                const items = buildBlockMenuItems(taskId, buildBlockMenuDeps(deps));
+                const { blockElements } = event.detail;
+                // 同步判断「点的是什么」（click-blockicon 必须在返回前加完项）
+                const hit = blockHitFromElement(blockElements?.[0] ?? null);
+                // 任务 = 文档：文档带 custom-task 才算任务；否则给「转为任务」
+                const inTaskDoc = this.taskIndex.has(hit.docId);
+                const id = inTaskDoc ? hit.docId : hit.blockId;
+                const items = buildBlockMenuItems(
+                    id ? { id, isTask: inTaskDoc } : null,
+                    buildBlockMenuDeps(deps),
+                );
                 if (!items.length) {
                     return;
                 }
-                menu.addSeparator();
-                menu.addItem({
-                    icon: "iconTaskFlow",
-                    label: "任务",
-                    type: "submenu",
-                    submenu: items.map((it) => ({
+                // 思源 3.8.4 的 click-blockicon 触发**晚于菜单渲染**，官方写法的
+                // addItem 只进数据不进 DOM（另一个独立插件同样如此，见 ui/blockMenuDom.ts）。
+                // 所以这里先照官方写法加一遍，下一个 tick 再确认进没进 DOM。
+                const menu = event.detail.menu as unknown as {
+                    addSeparator?: () => void;
+                    addItem?: (o: unknown) => void;
+                };
+                menu.addSeparator?.();
+                for (const it of items) {
+                    menu.addItem?.({
                         icon: it.icon,
                         label: it.label,
                         click: () => { void it.click(); },
-                    })),
-                });
-            } catch {
-                /* 挂菜单失败不能影响思源的块标菜单本身 */
+                    });
+                }
+                setTimeout(() => {
+                    injectTaskMenu(document, items, "iconTaskFlow");
+                }, 0);
+            } catch (e) {
+                // 别静默吞：这里出错的表现就是「菜单里根本没有『任务』」
+                console.log("[task-flow] 块标菜单构建失败: " + String((e as Error)?.message ?? e));
             }
         });
     }
@@ -296,6 +341,9 @@ export default class TaskFlow extends Plugin {
         }
         if (r.toast) {
             showMessage(r.toast, 3000);
+        }
+        if (r.id) {
+            this.taskIndex.remember(r.id); // 刚变成任务，别等下一次刷新
         }
     }
 

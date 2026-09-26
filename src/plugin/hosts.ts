@@ -46,6 +46,8 @@ export interface HostDeps {
     openBlock(id: string): void;
     /** 打开设置 */
     openSettings(): void;
+    /** 「不再作为任务」后把它从同步索引里去掉 */
+    forgetTask(id: string): void;
     /** 任务写操作 */
     toggleDone(id: string): Promise<void>;
     afterCompleted(id: string): Promise<void>;
@@ -309,6 +311,7 @@ export function buildBlockMenuDeps(deps: HostDeps): BlockMenuDeps {
         // 「不再作为任务」= 同类产品的「转为笔记」：去掉标记，内容全留着
         demoteFromTask: async (id: string) => {
             await setAttrsAndWait(id, { [ATTR.task]: "" }, ATTR.task, "");
+            deps.forgetTask(id); // 索引里去掉，否则菜单还会说它是任务
             deps.toast("已不再作为任务（内容都留着）", 3000);
         },
         onError: (m: string) => deps.errorToast("任务流：" + m),
