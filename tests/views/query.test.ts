@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SmartListId } from "../../src/views/query";
 import {
-    attr, boardSql, calendarSql, countSql, doneSql, doneTasksWhere, listSql, listsSql, openTasksWhere,
+    attr, boardSql, calendarSql, countSql, countsSql, doneSql, doneTasksWhere, listSql, listsSql, openTasksWhere,
     adjustCountsForLocalDone, applyLocalDone, remindCandidatesSql, SELECT_COLS, smartListIds, smartListsOf, sqlForView, tagsSql, TASK_MARK } from "../../src/views/query";
 
 const TODAY = "20260925";
@@ -375,5 +375,47 @@ describe("adjustCountsForLocalDone：读不等写入后，侧栏数字也要兜�
         const out = adjustCountsForLocalDone({ ...zero }, [{ done: "202609262300", due: T }], T);
         expect(out.today).toBe(0);
         expect(out.done).toBe(1);
+    });
+});
+
+describe("countsSql：6 个数字一条 SQL（别再来 6 个来回）", () => {
+    const sql = countsSql({ today: "20260926" });
+
+    it("是一条语句，不是六条", () => {
+        expect(sql.trim().startsWith("select")).toBe(true);
+        expect(sql.match(/select count\(\*\)/g) ?? []).toHaveLength(6);
+        expect(sql.split(";").filter((s) => s.trim())).toHaveLength(1);
+    });
+
+    it("六个别名都在，且能对上 smartListIds", () => {
+        for (const id of smartListIds()) {
+            // 必须带引号：`all` 是 SQL 保留字，`as all` 是语法错
+            expect(sql).toContain(`as "${id}"`);
+        }
+    });
+
+    it("别名一律加引号（保留字 `all` 不加引号会直接语法错）", () => {
+        expect(sql).not.toMatch(/as (?!")/);
+        expect(sql).toContain('as "all"');
+    });
+
+    it("复用同一套 whereFor：今天那一列仍是「今天到期 或 已逾期」", () => {
+        expect(sql).toContain("'20260926%'");
+        expect(sql).toContain("< '20260926'");
+    });
+
+    it("已完成那一列走 14 天窗口", () => {
+        expect(sql).toContain("'20260912'");
+    });
+});
+
+describe("countsSql 与 countSql 同源（不能各算各的）", () => {
+    it("每个清单在两处用的是同一个 WHERE", () => {
+        const one = countsSql({ today: "20260926" });
+        for (const id of smartListIds()) {
+            const single = countSql(id, { today: "20260926" });
+            const where = single.slice(single.indexOf("where ") + 6).trim();
+            expect(one).toContain(`where ${where})`);
+        }
     });
 });
