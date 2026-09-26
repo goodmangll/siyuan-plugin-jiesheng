@@ -49,7 +49,7 @@ M1  偏移 → 绝对时刻：'-2d09:00' + due  → '<due-2d>T0900'
 M2  偏移解析：'-15m' / '0'（准点）/ '-1w09:00'
 M3  due 变化后，提醒时刻按偏移重新计算
 M4  多条提醒的序列化 / 反序列化（空格分隔）
-M5  偏移格式与同类产品的 iCal TRIGGER 互转（'TRIGGER:-P2DT15H0M0S' ⇄ '-2d09:00'）
+M5  偏移格式与 iCal TRIGGER 互转（'TRIGGER:-P2DT15H0M0S' ⇄ '-2d09:00'）
 ```
 
 ### 任务块 `src/model/task.ts`

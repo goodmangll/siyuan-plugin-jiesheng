@@ -87,7 +87,7 @@ const DUE = attr("due");
 function smartDateWhere(id: SmartListId, today: string): string {
     switch (id) {
         case "today":
-            // 同类产品的「今天」= 今天到期 **加上** 已逾期未完成
+            // 「今天」= 今天到期 **加上** 已逾期未完成（逾期的不该从视野里消失）
             return `(${DUE} like '${today}%' or ${DUE} < '${today}')`;
         case "tomorrow":
             return `${DUE} like '${plusDays(today, 1)}%'`;

@@ -207,7 +207,7 @@ describe.skipIf(!reachable)("V-INT 文档模型：每条视图 SQL 都能被内�
         await setAttrsAndWait(taskDoc, { "custom-done": "" }, "custom-done", "");
     });
 
-    it("「今天」包含已逾期（同类产品的默认行为）", { timeout: 20_000 }, async () => {
+    it("「今天」包含已逾期", { timeout: 20_000 }, async () => {
         const b = docs[1];
         await setAttrsAndWait(b, { "custom-due": "20200101" }, "custom-due", "20200101");
         const rows = await runSql<TaskRow>(listSql("today", { today: TODAY }));

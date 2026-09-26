@@ -189,7 +189,7 @@ export const QUADRANT_TITLE: Record<Quadrant, string> = {
 
 /**
  * 四象限落格。重要 = 优先级高或中；紧急 = 3 天内到期。
- * 这是个**约定**，不是客观真理 —— 同类产品的默认划分也是约定，用户可自行改优先级来调整。
+ * 这是个**约定**，不是客观真理 —— 用户可改优先级来调整落格。
  */
 export function matrixCell(task: ViewTask, today: string): Quadrant {
     const important = task.priority === "high" || task.priority === "medium";

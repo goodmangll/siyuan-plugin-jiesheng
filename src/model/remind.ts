@@ -4,7 +4,7 @@
  *   存储（custom-remind）：`yyyyMMddHHmm`，多条用空格分隔
  *   面板（UI 层）：        「提前 N 天 09:00」这种偏移语义
  *
- * 为什么不跟同类产品一样存偏移（它存 iCal TRIGGER，如 `-P2DT15H0M0S`）：
+ * 为什么不存偏移（iCal TRIGGER 那种，如 `-P2DT15H0M0S`）：
  *   1. 提醒守护是**高频扫库**路径 —— 绝对时刻一句 `like '20260925%'` 就够，存偏移每次都要算；
  *   2. 改截止日 / 重复递推**本来就必须重算**，顺手重算 remind 成本为零；
  *   3. 人可读，块属性面板里能手改。
@@ -173,7 +173,7 @@ export function toICalTrigger(offset: string | null | undefined): string | null 
     const h = Math.floor((abs % 1440) / 60);
     const m = abs % 60;
     // iCal 规范最简形式：为 0 的部件省略（`-PT5M` 而不是 `-P0DT0H5M0S`）
-    // 注意：同类产品输出的是 `-P2DT15H0M0S` 这种「带零」写法，字面不同但时长等价；
+    // 注意：`-P2DT15H0M0S` 这种「带零」写法也要认，字面不同但时长等价；
     // fromICalTrigger 两种都能解析。
     const datePart = d > 0 ? `${d}D` : "";
     const timePart = [h > 0 ? `${h}H` : "", m > 0 ? `${m}M` : ""].join("") || "0S";

@@ -248,7 +248,7 @@ describe("smartListsOf：任务属于哪些智能清单", () => {
             .toEqual(["all", "today"]);
     });
 
-    it("逾期未完成 → 仍然算今天（同类产品的「今天」含逾期）", () => {
+    it("逾期未完成 → 仍然算今天", () => {
         expect(smartListsOf({ done: null, due: "20260920" }, TODAY).sort())
             .toEqual(["all", "today"]);
     });
