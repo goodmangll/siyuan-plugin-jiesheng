@@ -26,7 +26,7 @@ import { patchList, patchPriority, patchRange } from "./ui/panelActions";
 import { toDateStr } from "./model/date";
 import { ATTR } from "./model/attrs";
 import { splitTaskBlock } from "./model/body";
-import { createFollowScheduler, selectionIsInEditor } from "./ui/follow";
+import { createFollowScheduler, nextPinned, selectionIsInEditor } from "./ui/follow";
 import { runReminderScan } from "./ui/reminderRunner";
 import { DEFAULT_SETTINGS, type TaskFlowSettings } from "./settings";
 import { loadSettings, saveSettings } from "./api/settings";
@@ -96,17 +96,25 @@ export default class TaskFlow extends Plugin {
         //    （点完面板纹丝不动，按 ⌥⇧D 显式刷新才更新），所以不能只靠它。
         //    改用更可靠的组合：DOM 的 selectionchange（光标一动就发）
         //    + 思源的 switch-protyle（切文档）。防抖见 ui/follow。
-        const follow = createFollowScheduler(() => {
+        const follow = createFollowScheduler(async (reason) => {
             const sel = window.getSelection();
             const node = sel?.anchorNode ?? null;
             if (!selectionIsInEditor(node)) {
-                return; // 在面板自己的输入框里选字，不该刷新
+                // 在面板自己的输入框里选字，不该刷新，也不该解除固定
+                this.pinnedTask = nextPinned(this.pinnedTask, "selection-outside-editor");
+                return;
             }
+            // 判据是「光标**换了个块**（或切了文档）」，
+            // 不是「点了哪里」—— 见 ui/follow.ts 里那段自噬 bug 的记录。
+            const caret = this.currentBlockId();
+            const moved = reason === "switch-doc" || caret !== this.lastCaretBlockId;
+            this.lastCaretBlockId = caret;
+            this.pinnedTask = nextPinned(this.pinnedTask, moved ? "caret-moved" : "caret-same");
             this.panel?.refresh();
         });
-        document.addEventListener("selectionchange", () => follow.poke(), true);
-        this.eventBus.on("switch-protyle", () => follow.poke());
-        this.eventBus.on("click-editorcontent", () => follow.poke());
+        document.addEventListener("selectionchange", () => follow.poke("caret"), true);
+        this.eventBus.on("switch-protyle", () => follow.poke("switch-doc"));
+        this.eventBus.on("click-editorcontent", () => follow.poke("caret"));
 
         // 块标菜单 →「任务 ▸」子菜单
         // ⚠️ 必须同步 addItem：事件返回后思源立刻渲染菜单，异步加的项不会出现。
@@ -191,14 +199,6 @@ export default class TaskFlow extends Plugin {
             showMessage("任务流：提醒启动失败 —— " + (e as Error).message, 5000, "error");
         }
 
-        // 在编辑器里点一下就解除卡片固定，否则面板会一直停在上次点的那条
-        document.addEventListener("click", (e) => {
-            const t = e.target as HTMLElement | null;
-            if (t?.closest?.(".tf-tab-root")) {
-                return;
-            }
-            this.pinnedTask = null;
-        }, true);
     }
 
     /** 打开任务 Tab */
@@ -290,6 +290,9 @@ export default class TaskFlow extends Plugin {
             openBlock: (id: string) => this.openBlock(id),
 
             openDetail: (id: string) => {
+                // 视图里点中的那条 → 固定。
+                // ⚠️ openDock() 是程序化 dockItem.click()，那次点击**不会**移动光标，
+                //   所以不会再像以前那样把这里的固定清掉（见 ui/follow.ts）。
                 this.pinnedTask = id;
                 this.openDock();
                 this.panel?.refresh();
@@ -524,6 +527,9 @@ export default class TaskFlow extends Plugin {
     /** 前端提醒扫描的定时器 */
     private remindTimer: number | null = null;
     private settings: TaskFlowSettings = { ...DEFAULT_SETTINGS };
+
+    /** 上一次观察到的光标块 id —— 用来判「光标是不是真的换了地方」 */
+    private lastCaretBlockId: string | null = null;
 
     /** 待处理的一次性焦点请求（面板打开后由面板取走） */
     private pendingFocus: string | null = null;
