@@ -168,6 +168,58 @@ export function smartListsOf(
     return out;
 }
 
+/** 是不是智能清单（只有它们有日期/完成归属这一说） */
+export function isSmartListId(id: string): id is SmartListId {
+    return (smartListIds() as string[]).includes(id);
+}
+
+/**
+ * 把「本地已知、但 SQL 还没追上」的完成态叠加到 SQL 结果上。
+ *
+ * 为什么需要：思源的属性写入对 SQL 有约 1.3 秒的可见延迟，而 `ws-main`
+ * （思源每次事务都发）在**索引完成之前**就通知视图刷新。所以在这 1.3 秒里，
+ * 任何 SQL 快照都比本地知道的旧。视图要是信它，就会「点了完成先变对、
+ * 随后整个回退、过一秒再变对」—— 真机实测过。
+ *
+ * 叠加规则：
+ *   1. SQL 的行里，本地知道的那几条用本地值（SQL 的可能还没更新）
+ *   2. 本地有、SQL 还没有的行，补进来 —— **放在最前**，
+ *      因为它们刚完成，在「已完成」（`order by done desc`）里本来就该在最前
+ *   3. 再按当前视图重新算归属 —— 完成会改变归属
+ *      （一条任务从「今天」挪到「已完成」）
+ */
+export function applyLocalDone<T extends { id: string; done: string | null; due: string | null }>(
+    rows: T[],
+    view: string,
+    today: string,
+    local: Map<string, T>,
+): T[] {
+    if (local.size === 0) {
+        return rows;
+    }
+    const merged = new Map<string, T>();
+    for (const r of rows) {
+        merged.set(r.id, local.get(r.id) ?? r);
+    }
+    const extra: T[] = [];
+    for (const [id, t] of local) {
+        if (!merged.has(id)) {
+            extra.push(t);
+            merged.set(id, t);
+        }
+    }
+    let list = [...merged.values()];
+    if (isSmartListId(view)) {
+        list = list.filter((t) => smartListsOf(t, today).includes(view));
+    }
+    if (extra.length === 0) {
+        return list;
+    }
+    // 补进来的排最前（其余保持 SQL 的顺序）
+    const extraIds = new Set(extra.map((t) => t.id).filter((id) => list.some((t) => t.id === id)));
+    return [...list.filter((t) => extraIds.has(t.id)), ...list.filter((t) => !extraIds.has(t.id))];
+}
+
 /** 某个清单的完整 WHERE */
 function whereFor(id: SmartListId, today: string): string {
     return id === "done"

@@ -6,7 +6,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { SmartListId } from "./query";
-import { smartListIds, smartListsOf } from "./query";
+import { applyLocalDone, smartListIds, smartListsOf } from "./query";
 import type { ViewHost, ViewId } from "./host";
 import { VIEW_TABS } from "./host";
 import type { ViewTask } from "./model";
@@ -57,6 +57,39 @@ export function TabApp({ host, initialView = "today" }: { host: ViewHost; initia
      */
     const genRef = useRef(0);
 
+    /**
+     * 本地已知、但 SQL 可能还没追上的完成态。
+     *
+     * 写入落定前（约 1.3 秒），**任何 SQL 快照都比本地知道的旧** ——
+     * `ws-main` 在索引完成之前就通知视图刷新，会拿旧快照把乐观更新冲掉。
+     * 所以这段时间的渲染以本地为准；写入落定后 reload 落地时清空。
+     *
+     * 没有它的话，切到「已完成」要等 1.1 秒才出内容
+     *（因为 reload 要等写入落定），那 1.1 秒里主区写着「0 项」而侧栏是 1。
+     */
+    /**
+     * ⚠️ 用 ref 而不是 state：`reload` 被 `useCallback([host, today])` 记忆化，
+     * 它闭包里的 state 永远是**首次渲染**的那份。真机探针踩到过 ——
+     * 日志里「覆盖层=N」恒为 0，于是清理逻辑等于没执行。
+     * ref 在任何闭包里读到的都是最新值。
+     */
+    const localDoneRef = useRef<Map<string, ViewTask>>(new Map());
+    /** 覆盖层变化时强制重渲染（它自己是 ref，React 不知道它变了） */
+    const [, bumpOverlay] = useState(0);
+
+    /**
+     * 写库**已落定**的任务 id。
+     *
+     * 覆盖层不能在「任意一次 reload 落地」时清空 —— 真机踩到：
+     * **点击之前就发起的那次 reload**，它 await 的是**旧的** writeChain
+     *（那次链早已 resolve），于是立刻取到「点击前」的快照，
+     * 落地时把乐观结果覆盖回去 —— 界面整个回退。
+     * 代次号挡不住它（它就是顺序上最新的那一次）。
+     *
+     * 只有当**这次写入自己**落定了，SQL 才一定追得上，那条覆盖才可以撤。
+     */
+    const resolvedRef = useRef<Set<string>>(new Set());
+
     const reload = useCallback(async () => {
         const gen = ++genRef.current;
         const v = viewRef.current;
@@ -69,6 +102,16 @@ export function TabApp({ host, initialView = "today" }: { host: ViewHost; initia
             }
             setTasks(list);
             setCounts(c);
+            // 只撤掉「写入已落定」的那些覆盖 —— 其余的是本地比 SQL 新，
+            // 撤了就会回退（见 resolvedRef 的说明）
+            const done = resolvedRef.current;
+            if (done.size) {
+                resolvedRef.current = new Set();
+                for (const id of done) {
+                    localDoneRef.current.delete(id);
+                }
+                bumpOverlay((n) => n + 1);
+            }
             setState("ready");
         } catch (e) {
             if (gen !== genRef.current) {
@@ -91,6 +134,9 @@ export function TabApp({ host, initialView = "today" }: { host: ViewHost; initia
     }, [host, reload]);
 
     const onChanged = useCallback(() => { void reload(); }, [reload]);
+
+    /** 真正拿去渲染的行：SQL 的结果叠上本地已知的完成态 */
+    const shown = applyLocalDone(tasks, view, today, localDoneRef.current);
 
     /**
      * 勾选完成 / 取消完成 —— **乐观更新**。
@@ -123,8 +169,15 @@ export function TabApp({ host, initialView = "today" }: { host: ViewHost; initia
             }
             return next;
         });
-        // ③ 再去写库，写完对账
-        void host.toggleDone(task.id).then(onChanged);
+        // ③ 登记本地覆盖：写入落定前，SQL 都会说它「还没完成」
+        const optimistic = { ...task, done: task.done ? null : host.nowStamp() };
+        localDoneRef.current.set(task.id, optimistic);
+        bumpOverlay((n) => n + 1);
+        // ④ 再去写库。**落定之后**才允许撤掉覆盖（那时 SQL 一定追上了）
+        void host.toggleDone(task.id).then(() => {
+            resolvedRef.current.add(task.id);
+            onChanged();
+        });
     }, [host, today, onChanged]);
 
     const smart = VIEW_TABS.filter((t) => t.group === "smart");
@@ -154,8 +207,14 @@ export function TabApp({ host, initialView = "today" }: { host: ViewHost; initia
                     borderBottom: "1px solid var(--b3-border-color)",
                 }}>
                     <strong style={{ fontSize: 14 }}>{current?.label ?? view}</strong>
-                    <span style={{ fontSize: 12, opacity: 0.5 }} data-tf-count={tasks.length}>
-                        {state === "ready" ? `${tasks.length} 项` : ""}
+                    {/*
+                      * 这里的数字必须和列表用**同一个数据源**（`shown`）。
+                      * 曾经写成 `tasks.length` —— 那是 SQL 的结果，而列表渲染的是
+                      * 叠加本地完成态之后的 `shown`。两者在这 1.3 秒里会不一致，
+                      * 表现就是「已完成 0 项 / 这里空着」而侧栏写着 1（真机截图）。
+                      */}
+                    <span style={{ fontSize: 12, opacity: 0.5 }} data-tf-count={shown.length}>
+                        {state === "ready" ? `${shown.length} 项` : ""}
                     </span>
                     <span style={{ flex: 1 }} />
                     <a style={{ fontSize: 12, opacity: 0.6, cursor: "pointer" }} onClick={() => void reload()}>刷新</a>
@@ -166,7 +225,7 @@ export function TabApp({ host, initialView = "today" }: { host: ViewHost; initia
                         加载失败：{error}
                     </div>
                 ) : isSmartList(view) ? (
-                    <TaskList view={view} tasks={tasks} today={today} host={host}
+                    <TaskList view={view} tasks={shown} today={today} host={host}
                         onChanged={onChanged} onToggleDone={onToggleDone} />
                 ) : view === "board" ? (
                     <Board tasks={tasks} today={today} host={host} onChanged={onChanged} />
