@@ -6,11 +6,11 @@
  */
 
 import { Setting } from "siyuan";
-import { DEFAULT_SETTINGS, type TaskFlowSettings } from "../settings";
+import { DEFAULT_SETTINGS, type JieshengSettings } from "../settings";
 
 export interface SettingsHost {
-    load(): Promise<TaskFlowSettings>;
-    save(s: TaskFlowSettings): Promise<void>;
+    load(): Promise<JieshengSettings>;
+    save(s: JieshengSettings): Promise<void>;
     toast(message: string): void;
 }
 
@@ -34,12 +34,12 @@ function textInput(value: string, placeholder: string, onInput: (v: string) => v
 
 /** 打开设置。改动**立即保存**（和面板一致，没有"保存"按钮） */
 export async function openSettingsDialog(host: SettingsHost): Promise<void> {
-    const s: TaskFlowSettings = { ...DEFAULT_SETTINGS, ...(await host.load()) };
+    const s: JieshengSettings = { ...DEFAULT_SETTINGS, ...(await host.load()) };
     const persist = async (): Promise<void> => {
         try {
             await host.save(s);
         } catch (e) {
-            host.toast("任务流：设置保存失败 —— " + ((e as Error)?.message ?? ""));
+            host.toast("结绳：设置保存失败 —— " + ((e as Error)?.message ?? ""));
         }
     };
 
@@ -77,5 +77,5 @@ export async function openSettingsDialog(host: SettingsHost): Promise<void> {
         createActionElement: () => textInput(s.webhook ?? "", "https://...", (v) => { s.webhook = v; void persist(); }),
     });
 
-    setting.open("任务流设置");
+    setting.open("结绳设置");
 }

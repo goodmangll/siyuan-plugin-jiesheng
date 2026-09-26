@@ -104,7 +104,7 @@ export function createSession(deps: SessionDeps): EditorSession {
                     title: deps.tabTitle,
                 });
             } catch (e) {
-                deps.toast("任务流：Tab 打开失败 —— " + (e as Error).message, 5000);
+                deps.toast("结绳：Tab 打开失败 —— " + (e as Error).message, 5000);
             }
         },
     };

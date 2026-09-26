@@ -12,7 +12,7 @@ import { remindCandidatesSql } from "../views/query";
 import { runSql } from "../api/blocks";
 import { toDateTimeStr } from "../model/date";
 
-const CURSOR_KEY = "task-flow-remind-cursor";
+const CURSOR_KEY = "jiesheng-remind-cursor";
 const INTERVAL_MS = 60_000;
 
 export interface ReminderDaemonDeps {
@@ -61,10 +61,10 @@ export function createReminderDaemon(deps: ReminderDaemonDeps): ReminderDaemon {
                 wantsDesktop: deps.wantsDesktop,
             });
             if (r.fired > 0) {
-                log(`[task-flow] 前端推了 ${r.fired} 条提醒，游标=${r.cursor}`);
+                log(`[结绳] 前端推了 ${r.fired} 条提醒，游标=${r.cursor}`);
             }
         } catch (e) {
-            log("[task-flow] 提醒扫描出错: " + String((e as Error)?.message ?? e));
+            log("[结绳] 提醒扫描出错: " + String((e as Error)?.message ?? e));
         }
     };
 
@@ -98,7 +98,7 @@ export function notifyDesktop(title: string, body: string): void {
         if (!N || N.permission !== "granted") {
             return;
         }
-        new N(title, { body, tag: "task-flow-" + body.slice(0, 24) });
+        new N(title, { body, tag: "jiesheng-" + body.slice(0, 24) });
     } catch {
         /* 通知失败不影响其它通道 */
     }

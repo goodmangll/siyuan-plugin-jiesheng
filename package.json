@@ -1,8 +1,8 @@
 {
-  "name": "siyuan-plugin-task-flow",
+  "name": "siyuan-plugin-jiesheng",
   "version": "0.1.0",
   "private": true,
-  "description": "SiYuan plugin: quick-set task attributes (due/priority/reminder/repeat) via shortcuts and a Dock panel.",
+  "description": "SiYuan plugin 结绳/Jiesheng: turn documents into tasks — quick-set due/priority/reminder/repeat via shortcuts and a side panel, with built-in board/calendar/matrix/stats views.",
   "type": "module",
   "scripts": {
     "dev": "vite build --watch",

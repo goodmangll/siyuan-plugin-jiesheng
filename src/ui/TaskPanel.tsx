@@ -173,14 +173,14 @@ export function TaskPanel({ host, onReady }: { host: TaskPanelHost; onReady?: (r
             return;
         }
         if (!blockId) {
-            host.toast("任务流：请把光标放在一个任务上");
+            host.toast("结绳：请把光标放在一个任务上");
             return;
         }
         try {
             await host.writeAttrs(blockId, patch);
             setAttrs((prev) => ({ ...prev, ...patch }));
         } catch (e) {
-            host.toast("任务流：" + ((e as Error).message || "写入失败"));
+            host.toast("结绳：" + ((e as Error).message || "写入失败"));
         }
     }, [blockId, host]);
 
@@ -188,7 +188,7 @@ export function TaskPanel({ host, onReady }: { host: TaskPanelHost; onReady?: (r
 
     if (!blockId) {
         return (
-            <div className="task-flow-panel" data-state="empty" style={{ padding: 12, fontSize: 13 }}>
+            <div className="jiesheng-panel" data-state="empty" style={{ padding: 12, fontSize: 13 }}>
                 <div style={{ fontWeight: 600, marginBottom: 6 }}>任务</div>
                 <div style={{ opacity: 0.6 }}>把光标放到一个任务上，然后按 Alt+Shift+D。</div>
             </div>
@@ -196,7 +196,7 @@ export function TaskPanel({ host, onReady }: { host: TaskPanelHost; onReady?: (r
     }
 
     return (
-        <div className="task-flow-panel" data-state={ready ? "ready" : "loading"} style={{ padding: "10px 12px", fontSize: 13, lineHeight: 1.7 }}>
+        <div className="jiesheng-panel" data-state={ready ? "ready" : "loading"} style={{ padding: "10px 12px", fontSize: 13, lineHeight: 1.7 }}>
             <div style={{ display: "flex", alignItems: "center", marginBottom: 8 }}>
                 <input
                     className="b3-text-field"
@@ -229,7 +229,7 @@ export function TaskPanel({ host, onReady }: { host: TaskPanelHost; onReady?: (r
                 <span style={labelStyle} />
                 <span style={{ opacity: 0.6, marginRight: 6 }}>截止</span>
                 <input
-                    ref={dueRef} data-tf="due"
+                    ref={dueRef} data-jie="due"
                     key={`due-${blockId}-${attrs[ATTR.due] ?? ""}`}
                     className="b3-text-field" style={fieldStyle} defaultValue={toInputValue(attrs[ATTR.due])}
                     placeholder="yyyy-MM-dd 或 yyyy-MM-ddTHH:mm"
@@ -408,7 +408,7 @@ export function TaskPanel({ host, onReady }: { host: TaskPanelHost; onReady?: (r
             {tags.length > 0 && (
                 <div style={{ marginLeft: "3.5em", marginBottom: 6, fontSize: 12 }}>
                     {tags.map((tg) => (
-                        <span key={tg} data-tf-panel-tag={tg} style={{ marginRight: 8, opacity: 0.8 }}>
+                        <span key={tg} data-jie-panel-tag={tg} style={{ marginRight: 8, opacity: 0.8 }}>
                             #{tg}
                             <a
                                 style={{ marginLeft: 4, cursor: "pointer", opacity: 0.6 }}

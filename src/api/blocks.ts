@@ -19,7 +19,7 @@ export type Transport = (url: string, data?: Record<string, unknown>) => Promise
 
 /** 未注入 transport 时调用会抛错——避免在非思源环境里静默失败 */
 let transport: Transport = () => {
-    throw new Error("task-flow: transport 未注入");
+    throw new Error("jiesheng: transport 未注入");
 };
 
 export function setTransport(t: Transport): void {
@@ -37,10 +37,10 @@ export async function callKernel<T>(url: string, data?: Record<string, unknown>)
 async function call<T>(url: string, data?: Record<string, unknown>): Promise<T> {
     const res = await transport(url, data);
     if (!res || typeof res.code !== "number") {
-        throw new Error(`task-flow: ${url} 返回异常`);
+        throw new Error(`jiesheng: ${url} 返回异常`);
     }
     if (res.code !== 0) {
-        throw new Error(`task-flow: ${url} 失败 code=${res.code} ${res.msg ?? ""}`);
+        throw new Error(`jiesheng: ${url} 失败 code=${res.code} ${res.msg ?? ""}`);
     }
     return res.data as T;
 }

@@ -65,7 +65,7 @@ export function Board({ tasks, today, host, store }: {
                 {(["list", "priority"] as BoardGroupBy[]).map((m) => (
                     <a
                         key={m}
-                        data-tf-board-by={m}
+                        data-jie-board-by={m}
                         onClick={() => setBy(m)}
                         style={{ cursor: "pointer", fontWeight: by === m ? 600 : 400, opacity: by === m ? 1 : 0.6 }}
                     >
@@ -77,11 +77,11 @@ export function Board({ tasks, today, host, store }: {
             </div>
 
             <div style={{ flex: 1, overflowX: "auto", overflowY: "hidden", display: "flex", gap: 10, padding: 12 }}
-                data-tf-board={by}>
+                data-jie-board={by}>
                 {groups.map((g) => (
                     <div
                         key={g.key}
-                        data-tf-col={g.key || "__none__"}
+                        data-jie-col={g.key || "__none__"}
                         onDragOver={(e) => { e.preventDefault(); setOverKey(g.key); }}
                         onDragLeave={() => setOverKey((k) => (k === g.key ? null : k))}
                         onDrop={(e) => {
@@ -142,7 +142,7 @@ function Card({ task, today, host, dragging, onDragStart, onDragEnd }: {
     return (
         <div
             draggable
-            data-tf-card={task.id}
+            data-jie-card={task.id}
             onDragStart={onDragStart}
             onDragEnd={onDragEnd}
             onClick={() => host.openDetail(task.id)}

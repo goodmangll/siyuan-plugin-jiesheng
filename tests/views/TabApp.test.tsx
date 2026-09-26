@@ -120,7 +120,7 @@ function makeHost(opts: {
 }
 
 async function clickNav(label: string): Promise<void> {
-    const nav = document.querySelector(".tf-tab nav");
+    const nav = document.querySelector(".jie-tab nav");
     const item = [...(nav?.querySelectorAll("div") ?? [])]
         .find((e) => e.textContent?.trim().startsWith(label));
     if (!item) {
@@ -133,14 +133,14 @@ async function clickNav(label: string): Promise<void> {
 
 /** 主区标题里的「N 项」 */
 function mainCount(): string {
-    const tab = document.querySelector(".tf-tab");
+    const tab = document.querySelector(".jie-tab");
     const m = /(\d+)\s*项/.exec(tab?.textContent ?? "");
     return m ? m[1] : "(没有 N 项)";
 }
 
 /** 侧栏「已完成」后面的数字 */
 function navCount(label: string): string {
-    const nav = document.querySelector(".tf-tab nav");
+    const nav = document.querySelector(".jie-tab nav");
     const item = [...(nav?.querySelectorAll("div") ?? [])]
         .find((e) => e.textContent?.trim().startsWith(label));
     const m = /(\d+)\s*$/.exec(item?.textContent?.trim() ?? "");
@@ -154,7 +154,7 @@ describe("TabApp · 写库期间切视图（真机踩到的竞态）", () => {
         await waitFor(() => expect(mainCount()).toBe("1"));
 
         await act(async () => {
-            (document.querySelector(".tf-row input[type=checkbox]") as HTMLInputElement).click();
+            (document.querySelector(".jie-row input[type=checkbox]") as HTMLInputElement).click();
         });
         // 写库还没回来，用户已经切到「已完成」
         await act(async () => { await clickNav("已完成"); });
@@ -201,7 +201,7 @@ describe("TabApp · 写入落定前切视图（本地完成态要盖住旧快照
         await waitFor(() => expect(mainCount()).toBe("1"));
 
         await act(async () => {
-            (document.querySelector(".tf-row input[type=checkbox]") as HTMLInputElement).click();
+            (document.querySelector(".jie-row input[type=checkbox]") as HTMLInputElement).click();
         });
 
         // 写入还在飞，马上切到「已完成」
@@ -211,7 +211,7 @@ describe("TabApp · 写入落定前切视图（本地完成态要盖住旧快照
 
         // 断言：**立刻**就有内容（来自本地完成态），而不是等 SQL 回来
         expect(mainCount()).toBe("1");
-        const rows = document.querySelectorAll(".tf-row");
+        const rows = document.querySelectorAll(".jie-row");
         expect(rows.length).toBe(1);
         expect(rows[0].textContent).toContain("任务一");
         expect(navCount("已完成")).toBe("1");
@@ -223,7 +223,7 @@ describe("TabApp · 写入落定前切视图（本地完成态要盖住旧快照
         await waitFor(() => expect(mainCount()).toBe("1"));
 
         await act(async () => {
-            (document.querySelector(".tf-row input[type=checkbox]") as HTMLInputElement).click();
+            (document.querySelector(".jie-row input[type=checkbox]") as HTMLInputElement).click();
             await clickNav("已完成");
         });
         expect(mainCount()).toBe("1");
@@ -252,7 +252,7 @@ describe("TabApp · 点击之前就发起的那次刷新（旧快照不许落地
 
         // 就在这次慢查询飞在天上的时候，点完成
         await act(async () => {
-            (document.querySelector(".tf-row input[type=checkbox]") as HTMLInputElement).click();
+            (document.querySelector(".jie-row input[type=checkbox]") as HTMLInputElement).click();
         });
         expect(mainCount()).toBe("0");
 
@@ -263,6 +263,6 @@ describe("TabApp · 点击之前就发起的那次刷新（旧快照不许落地
         // 断言时写入还没落定（writeDelay 2000），所以这一刻吃的完全是覆盖层
         expect(host.__sql().open.length).toBe(1); // SQL 眼里还没完成
         expect(mainCount()).toBe("0");
-        expect(document.querySelectorAll(".tf-row").length).toBe(0);
+        expect(document.querySelectorAll(".jie-row").length).toBe(0);
     });
 });

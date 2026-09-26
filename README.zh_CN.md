@@ -1,4 +1,4 @@
-# Task Flow for SiYuan · 任务流
+# Jiesheng for SiYuan · 结绳
 
 Quick-set task attributes — **due date, priority, reminder, repeat** — with keyboard shortcuts and a side panel.
 
@@ -10,7 +10,7 @@ SiYuan already has the pieces: native task blocks, QueryView dashboards, a task 
 What's missing is the *fast* part — giving a task a date/priority without opening the block-attribute
 dialog and typing `20260925` by hand.
 
-Task Flow adds exactly that, and nothing else. **It does not add any view.**
+Jiesheng adds exactly that, and nothing else. **It does not add any view.**
 
 ## Data model
 

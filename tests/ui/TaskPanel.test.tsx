@@ -41,7 +41,7 @@ const mount = async (host: TaskPanelHost) => {
     // 等「就绪」而不是等「有输入框」：属性是异步读的，
     // 只等输入框会拿到 attrs 还是空的那一帧
     await waitFor(() => {
-        if (!document.querySelector('.task-flow-panel[data-state="ready"]')) {
+        if (!document.querySelector('.jiesheng-panel[data-state="ready"]')) {
             throw new Error("面板还没就绪");
         }
     });
@@ -83,14 +83,14 @@ describe("P1 标题与跳转", () => {
     it("显示 host 给的标题（标题是可编辑输入框 —— 改名即文档重命名）", async () => {
         await mount(makeHost());
         await waitFor(() => {
-            const el = document.querySelector(".task-flow-panel input") as HTMLInputElement;
+            const el = document.querySelector(".jiesheng-panel input") as HTMLInputElement;
             expect(el.value).toBe("写周报");
         });
     });
     it("点「跳转到块」调用 host.openBlock", async () => {
         const seen: string[] = [];
         await mount(makeHost({ openBlock: (id) => seen.push(id) }));
-        const link = [...document.querySelectorAll(".task-flow-panel a")]
+        const link = [...document.querySelectorAll(".jiesheng-panel a")]
             .find((a) => a.textContent?.includes("跳转")) as HTMLElement;
         await act(async () => { link.click(); });
         expect(seen).toEqual(["T1"]);
@@ -100,17 +100,17 @@ describe("P1 标题与跳转", () => {
 describe("P2 全天开关反映 due 的形态（不单独存字段）", () => {
     it("due 有时间 → 全天未勾选", async () => {
         await mount(makeHost({ readAttrs: async () => ({ "custom-due": "202609251430" }) }));
-        const box = document.querySelector(".task-flow-panel input[type=checkbox]") as HTMLInputElement;
+        const box = document.querySelector(".jiesheng-panel input[type=checkbox]") as HTMLInputElement;
         expect(box.checked).toBe(false);
     });
     it("due 是 8 位 → 全天已勾选", async () => {
         await mount(makeHost({ readAttrs: async () => ({ "custom-due": "20260925" }) }));
-        const box = document.querySelector(".task-flow-panel input[type=checkbox]") as HTMLInputElement;
+        const box = document.querySelector(".jiesheng-panel input[type=checkbox]") as HTMLInputElement;
         expect(box.checked).toBe(true);
     });
     it("没有 due → 视为全天（新任务默认）", async () => {
         await mount(makeHost({ readAttrs: async () => ({}) }));
-        const box = document.querySelector(".task-flow-panel input[type=checkbox]") as HTMLInputElement;
+        const box = document.querySelector(".jiesheng-panel input[type=checkbox]") as HTMLInputElement;
         expect(box.checked).toBe(true);
     });
 });
@@ -119,7 +119,7 @@ describe("P3 输入框不能在每次按键时就写库（曾经的真 bug：敲
     it("在截止框里输入过程中不写库", async () => {
         const writes: Record<string, string>[] = [];
         await mount(makeHost({ writeAttrs: async (_id, patch) => { writes.push(patch); } }));
-        const due = document.querySelector('.task-flow-panel [data-tf="due"]') as HTMLInputElement;
+        const due = document.querySelector('.jiesheng-panel [data-jie="due"]') as HTMLInputElement;
         await act(async () => {
             const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
             setter.call(due, "2026-10-01");
@@ -133,7 +133,7 @@ describe("P3 输入框不能在每次按键时就写库（曾经的真 bug：敲
             readAttrs: async () => ({ "custom-due": "202609251430" }),
             writeAttrs: async (_id, patch) => { writes.push(patch); },
         }));
-        const due = document.querySelector('.task-flow-panel [data-tf="due"]') as HTMLInputElement;
+        const due = document.querySelector('.jiesheng-panel [data-jie="due"]') as HTMLInputElement;
         await act(async () => {
             const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
             setter.call(due, "2026-10-01");
@@ -156,7 +156,7 @@ describe("P4 面板展开有动画：对还不可见的元素 focus() 是空操�
         try {
             await mount(makeHost({ takeFocus: () => "due" }));
             await waitFor(() => {
-                expect(document.activeElement?.getAttribute("data-tf")).toBe("due");
+                expect(document.activeElement?.getAttribute("data-jie")).toBe("due");
             });
             expect(calls).toBeGreaterThanOrEqual(3);
         } finally {

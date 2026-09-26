@@ -7,7 +7,7 @@ import { appendTaskItem, callKernel, createDocWithMd, runSql, setBlockAttrs } fr
 import { waitFor } from "../util/waitFor";
 
 /** 收件箱文档的默认标题，用户可以在思源里改成别的名字 */
-export const INBOX_DOC_TITLE = "任务流收件箱";
+export const INBOX_DOC_TITLE = "结绳收件箱";
 
 interface Notebook { id: string; name: string; closed?: boolean }
 

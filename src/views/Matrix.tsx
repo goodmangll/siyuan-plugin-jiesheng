@@ -58,11 +58,11 @@ export function Matrix({ tasks, today, host, store }: {
             <div style={{
                 flex: 1, minHeight: 0, display: "grid",
                 gridTemplateColumns: "1fr 1fr", gridTemplateRows: "1fr 1fr", gap: 8, padding: 12,
-            }} data-tf-matrix="1">
+            }} data-jie-matrix="1">
                 {ORDER.map((q) => (
                     <div
                         key={q}
-                        data-tf-quad={q}
+                        data-jie-quad={q}
                         onDragOver={(e) => { e.preventDefault(); setOver(q); }}
                         onDragLeave={() => setOver((v) => (v === q ? null : v))}
                         onDrop={(e) => { e.preventDefault(); drop(q, e.dataTransfer?.getData("text/plain") || undefined); }}
@@ -82,7 +82,7 @@ export function Matrix({ tasks, today, host, store }: {
                                 <div
                                     key={t.id}
                                     draggable
-                                    data-tf-card={t.id}
+                                    data-jie-card={t.id}
                                     onDragStart={(e) => {
                                         e.dataTransfer?.setData("text/plain", t.id);
                                         setDragId(t.id);

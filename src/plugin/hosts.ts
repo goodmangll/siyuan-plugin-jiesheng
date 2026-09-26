@@ -62,7 +62,7 @@ export interface HostDeps {
     errorToast(message: string): void;
 }
 
-const NOT_READY = "任务流：插件仍在初始化，请稍后再试";
+const NOT_READY = "结绳：插件仍在初始化，请稍后再试";
 
 /** 视图层（Tab）的宿主 */
 export function buildViewHost(deps: HostDeps): ViewHost {
@@ -194,7 +194,7 @@ export function buildViewHost(deps: HostDeps): ViewHost {
         detach: async (taskId: string) => {
             const nb = await notebookOf(taskId);
             if (!nb) {
-                deps.errorToast("任务流：找不到任务所在笔记本，无法解除");
+                deps.errorToast("结绳：找不到任务所在笔记本，无法解除");
                 return;
             }
             await detachTask(taskId, nb);
@@ -329,7 +329,7 @@ export function buildBlockMenuDeps(deps: HostDeps): BlockMenuDeps {
             deps.forgetTask(id); // 索引里去掉，否则菜单还会说它是任务
             deps.toast("已不再作为任务（内容都留着）", 3000);
         },
-        onError: (m: string) => deps.errorToast("任务流：" + m),
+        onError: (m: string) => deps.errorToast("结绳：" + m),
     };
 }
 

@@ -6,7 +6,7 @@ export default defineConfig({
         lib: {
             entry: "src/kernel.ts",
             formats: ["iife"],
-            name: "TaskFlowKernel",
+            name: "JieshengKernel",
             fileName: () => "kernel.js",
         },
         outDir: "dist",

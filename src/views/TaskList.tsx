@@ -52,7 +52,7 @@ export function TaskList({ view, tasks, today, host, onChanged, onToggleDone }: 
                 <span style={{ opacity: 0.5 }}>+</span>
                 <input
                     className="b3-text-field"
-                    data-tf-new="1"
+                    data-jie-new="1"
                     style={{ flex: 1, fontSize: 13 }}
                     placeholder="回车新建一条任务"
                     value={draft}
@@ -60,7 +60,7 @@ export function TaskList({ view, tasks, today, host, onChanged, onToggleDone }: 
                     onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
                 />
             </div>
-            <div style={{ flex: 1, overflowY: "auto" }} data-tf-list={view}>
+            <div style={{ flex: 1, overflowY: "auto" }} data-jie-list={view}>
                 {nodes.length === 0 ? (
                     <div style={{ padding: 24, textAlign: "center", opacity: 0.4, fontSize: 13 }}>
                         这里空着

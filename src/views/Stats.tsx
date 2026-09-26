@@ -39,7 +39,7 @@ export function Stats({ today, host }: { today: string; host: ViewHost }) {
     }
 
     return (
-        <div style={{ overflowY: "auto", padding: 16, fontSize: 13 }} data-tf-stats="1">
+        <div style={{ overflowY: "auto", padding: 16, fontSize: 13 }} data-jie-stats="1">
             <Section title={`近 ${DAYS} 天 · 完成`} total={done.reduce((n, x) => n + x.value, 0)}>
                 <BarChart points={done} color="var(--b3-theme-primary)" />
             </Section>
