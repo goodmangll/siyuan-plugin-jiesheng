@@ -8,10 +8,9 @@ import { ATTR } from "../src/model/attrs";
 const NOW = new Date(2026, 8, 25, 10, 0); // 2026-09-25 周五
 
 let writes: { id: string; patch: Record<string, string> }[] = [];
-let krWrites: { id: string; md: string }[] = [];
+let doneToggles: string[] = [];
 let toasts: string[] = [];
 let store: Record<string, Record<string, string>> = {};
-let kramdown: Record<string, string> = {};
 let active: string | null = "TASK";
 
 const deps: TaskCommandDeps = {
@@ -22,17 +21,16 @@ const deps: TaskCommandDeps = {
         writes.push({ id, patch });
         store[id] = { ...(store[id] ?? {}), ...patch };
     },
-    readKramdown: async (id) => kramdown[id] ?? "",
-    writeKramdown: async (id, md) => {
-        krWrites.push({ id, md });
-        kramdown[id] = md;
-    },
+    // 完成/取消完成是**注入**的：面板、视图、快捷键必须共用同一份实现。
+    // 曾经这里是 readKramdown/writeKramdown 各写一套。
+    toggleDone: async (id) => { doneToggles.push(id); },
     openPanel: () => {},
     toast: (m) => toasts.push(m),
 };
 
 beforeEach(() => {
-    writes = []; krWrites = []; toasts = []; store = {}; kramdown = {}; active = "TASK";
+    writes = []; doneToggles = []; toasts = []; store = {}; active = "TASK";
+    store.TASK = { [ATTR.task]: "1" };
 });
 
 describe("T1/T2/T3 优先级", () => {
@@ -90,26 +88,32 @@ describe("T7 光标不在任务块上", () => {
     });
 });
 
-describe("T14/T15 完成状态", () => {
-    it("切到已完成：只改首行标记", async () => {
-        kramdown["TASK"] = '- {: id="TASK"}[ ] 标题\n\n  正文\n\n  - [ ] 子任务';
+describe("T14/T15 完成状态 —— 必须和面板/视图走同一条实现", () => {
+    it("★ 完成走注入的 toggleDone（custom-done 那一条），不再自己切 kramdown", async () => {
+        // 这里曾经自己实现了一份 kramdown 版本：读文档的 kramdown 首行，
+        // 把 `- [ ]` 改成 `- [X]`。模型改成「任务=文档」以后，
+        // 文档的 kramdown 压根不是任务列表项，isTaskKramdown 恒为 false，
+        // 于是 ⌥⇧M 永远只弹「当前块不是任务」—— 一次都没生效过。
         await toggleDone(deps);
-        expect(krWrites).toHaveLength(1);
-        expect(krWrites[0].md.split("\n")[0]).toBe('- {: id="TASK"}[X] 标题');
-        expect(krWrites[0].md.split("\n").slice(1)).toEqual(
-            '- {: id="TASK"}[ ] 标题\n\n  正文\n\n  - [ ] 子任务'.split("\n").slice(1),
-        );
+        expect(doneToggles).toEqual(["TASK"]);
+        expect(writes).toHaveLength(0); // 不再直接写属性，交给那一份实现
     });
-    it("已是已完成 → 取消完成", async () => {
-        kramdown["TASK"] = "- [X] 标题";
+    it("光标不在任何任务上 → 不写，给提示", async () => {
+        active = null;
         await toggleDone(deps);
-        expect(krWrites[0].md).toBe("- [ ] 标题");
+        expect(doneToggles).toHaveLength(0);
+        expect(toasts.some((t) => t.includes("光标"))).toBe(true);
     });
-    it("非任务块 → 不写，给提示", async () => {
-        kramdown["TASK"] = "普通段落";
+    it("当前文档不是任务（没 custom-task）→ 不写，给提示", async () => {
+        store.TASK = {};
         await toggleDone(deps);
-        expect(krWrites).toHaveLength(0);
-        expect(toasts).toHaveLength(1);
+        expect(doneToggles).toHaveLength(0);
+        expect(toasts.some((t) => t.includes("不是任务"))).toBe(true);
+    });
+    it("custom-task 为 '0' / 空串也算不是任务", async () => {
+        store.TASK = { [ATTR.task]: "" };
+        await toggleDone(deps);
+        expect(doneToggles).toHaveLength(0);
     });
 });
 
@@ -161,30 +165,18 @@ describe("currentTaskBlockId 的容错", () => {
     });
 });
 
-describe("T21-T23 完成时触发重复生成钩子", () => {
-    it("从未完成 → 完成：触发 onCompleted", async () => {
-        const done: string[] = [];
-        deps.onCompleted = async (id: string) => { done.push(id); };
-        kramdown["TASK"] = "- [ ] 标题";
+describe("T21-T23 完成时触发重复生成 —— 判定已下沉到 actions.toggleTaskDone", () => {
+    it("命令层只负责「转交」，不在这一层判定完成前后", async () => {
+        // 「刚变成完成才生成、取消完成不生成」的判定在 actions.toggleTaskDone 里，
+        // 命令层再判一次就会出现两份真相（这正是 ⌥⇧M 坏掉时的形状）。
+        const calls: string[] = [];
+        deps.toggleDone = async (id) => { calls.push(id); };
         await toggleDone(deps);
-        expect(done).toEqual(["TASK"]);
-        delete deps.onCompleted;
+        expect(calls).toEqual(["TASK"]);
     });
-    it("从完成 → 未完成：不触发", async () => {
-        const done: string[] = [];
-        deps.onCompleted = async (id: string) => { done.push(id); };
-        kramdown["TASK"] = "- [X] 标题";
-        await toggleDone(deps);
-        expect(done).toEqual([]);
-        delete deps.onCompleted;
-    });
-    it("onCompleted 抛异常不影响完成状态写入", async () => {
-        deps.onCompleted = async () => { throw new Error("gen boom"); };
-        kramdown["TASK"] = "- [ ] 标题";
-        await expect(toggleDone(deps)).resolves.toBeUndefined();
-        expect(krWrites).toHaveLength(1);
-        expect(krWrites[0].md).toBe("- [X] 标题");
-        delete deps.onCompleted;
+    it("转交目标抛异常时，异常向上抛（由命令注册处兜底 toast）", async () => {
+        deps.toggleDone = async () => { throw new Error("boom"); };
+        await expect(toggleDone(deps)).rejects.toThrow("boom");
     });
 });
 
@@ -192,7 +184,6 @@ describe("T8 ⌥⇧D 要请求把焦点给日期区", () => {
     it("打开面板时带上 focus='due'（之前 focus 参数被整个丢掉了）", async () => {
         const seen: (string | undefined)[] = [];
         deps.openPanel = (_id: string, focus?: string) => { seen.push(focus); };
-        kramdown["TASK"] = "- [ ] 标题";
         await openPanel(deps);
         expect(seen).toEqual(["due"]);
     });

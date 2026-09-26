@@ -8,7 +8,6 @@
 
 import { ATTR } from "./model/attrs";
 import { priorityAttr, type Priority } from "./model/priority";
-import { isDone, isTaskKramdown, setTaskDone } from "./model/task";
 import { patchDue, type DueKind } from "./ui/panelActions";
 
 // 转出去：调用方一直在 `./commands` 里拿 DueKind
@@ -23,10 +22,15 @@ export interface TaskCommandDeps {
     readAttrs(id: string): Promise<Record<string, string>>;
     /** 写属性补丁；空串表示删除 */
     writeAttrs(id: string, patch: Record<string, string>): Promise<void>;
-    /** 读块 kramdown */
-    readKramdown(id: string): Promise<string>;
-    /** 写回块 kramdown */
-    writeKramdown(id: string, markdown: string): Promise<void>;
+    /**
+     * 完成 / 取消完成 —— **注入**，和面板、视图走同一份实现。
+     *
+     * 这里曾经自己写了一份（读块 kramdown，把首行的 `- [ ]` 改成 `- [X]`）。
+     * 模型改成「任务 = 文档」以后，文档的 kramdown 根本不是任务列表项，
+     * 判定恒为 false —— `⌥⇧M` 永远只弹「当前块不是任务」，一次都没生效过。
+     * 同一个语义在三条路上各写一份，就会这样。
+     */
+    toggleDone?(id: string): Promise<void>;
     /** 打开任务面板（M2 实现） */
     openPanel(id: string, focus?: string): void;
     /** 轻提示 */
@@ -39,8 +43,6 @@ export interface TaskCommandDeps {
     openSettings?(): void;
     /** 当前被整块选中的块数（用于 T18 的多选提示） */
     selectedBlockCount?(): number;
-    /** 任务**刚变成完成**时回调（重复任务生成挂在这里） */
-    onCompleted?(id: string): Promise<void> | void;
 }
 
 export interface TaskCommand {
@@ -122,33 +124,21 @@ export async function clearDue(deps: TaskCommandDeps): Promise<void> {
     });
 }
 
-/** 完成 / 取消完成：只改 kramdown 首行的标记，子块字节级不动 */
+/**
+ * 完成 / 取消完成。
+ *
+ * 只做两件事：确认光标处**是个任务**，然后把活儿交给注入的 `toggleDone`。
+ * 具体写 `custom-done`、以及「刚变成完成才生成重复任务」的判定，
+ * 都在 `plugin/actions.toggleTaskDone` 那一份里 —— 面板和视图走的也是它。
+ */
 export async function toggleDone(deps: TaskCommandDeps): Promise<void> {
-    const id = await currentTaskBlockId(deps);
-    if (!id) {
-        return;
-    }
-    const kr = await deps.readKramdown(id);
-    if (!isTaskKramdown(kr)) {
-        deps.toast?.("结绳：当前块不是任务");
-        return;
-    }
-    const wasDone = isDone(kr);
-    const next = setTaskDone(kr, !wasDone);
-    if (next === null) {
-        deps.toast?.("结绳：无法切换完成状态");
-        return;
-    }
-    await deps.writeKramdown(id, next);
-
-    // 刚变成「完成」时才触发生成；取消完成不该生成
-    if (!wasDone && deps.onCompleted) {
-        try {
-            await deps.onCompleted(id);
-        } catch {
-            // 生成失败不能让「完成任务」这个动作失败
+    await withTask(deps, async (id, attrs) => {
+        if ((attrs[ATTR.task] ?? "").trim() !== "1") {
+            deps.toast?.("结绳：当前文档不是任务");
+            return;
         }
-    }
+        await deps.toggleDone?.(id);
+    });
 }
 
 /** 打开设置 */

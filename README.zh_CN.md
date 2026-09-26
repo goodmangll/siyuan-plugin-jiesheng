@@ -1,78 +1,66 @@
-# Jiesheng for SiYuan · 结绳
+# 结绳 · Jiesheng for SiYuan
 
-Quick-set task attributes — **due date, priority, reminder, repeat** — with keyboard shortcuts and a side panel.
+把思源文档变成任务。用快捷键或侧栏面板设置日期、优先级、提醒、重复，在自带视图里查看，
+关掉界面也能收到提醒。
 
-> Status: **M1 (model + commands + entry) done.** The editable panel is M2.
+## 模型
 
-## Why
+**任务 = 思源文档**，带 `custom-task="1"` 才算。子任务 = 子文档，清单 = 笔记本。
+其余信息都在块属性里：
 
-SiYuan already has the pieces: native task blocks, QueryView dashboards, a task list dock.
-What's missing is the *fast* part — giving a task a date/priority without opening the block-attribute
-dialog and typing `20260925` by hand.
-
-Jiesheng adds exactly that, and nothing else. **It does not add any view.**
-
-## Data model
-
-Tasks are ordinary SiYuan task-list blocks (`- [ ] …`). Everything is stored in block attributes:
-
-| attribute | meaning | format |
-|---|---|---|
-| `custom-due` | due | `yyyyMMdd` (all-day) or `yyyyMMddHHmm` |
-| `custom-start` | start | same |
-| `custom-pri` | priority | `1` high · `2` medium · `3` low · empty = none |
-| `custom-remind` | reminders | absolute `yyyyMMddHHmm`, space-separated |
-| `custom-repeat` | repeat rule | RRULE subset, e.g. `FREQ=WEEKLY;BYDAY=FR` |
-| `custom-list` | lightweight list name | text |
-| `custom-done` | completion time | `yyyyMMddHHmm` |
-| `custom-abandoned` | abandoned | `1` |
-| `custom-spent` | pomodoros spent | number |
-
-Completion itself stays native: `- [ ]` / `- [X]`. No extra attribute.
-
-Sub-tasks are nested `- [ ]` blocks. Notes are documents (convert with SiYuan's built-in
-`li2Doc`), matching a similar product's own task/note split.
-
-## Shortcuts
-
-SiYuan already occupies `Alt+1..9` (docks) and `Ctrl+Alt+1..6` (headings), so `Alt+Shift+*` is used:
-
-| key | action |
+| 属性 | 含义 |
 |---|---|
-| `Alt+Shift+1/2/3` | priority high / medium / low |
-| `Alt+Shift+0` | clear priority |
-| `Alt+Shift+Q / W / E` | due today / tomorrow / next week (keeps all-day vs. timed form) |
-| `Alt+Shift+X` | clear due date |
-| `Alt+Shift+M` | toggle done |
-| `Alt+Shift+D` | open the task panel |
+| `custom-task` | `1` = 这个文档是任务 |
+| `custom-due` · `custom-start` | `yyyyMMdd`（全天）或 `yyyyMMddHHmm` |
+| `custom-pri` | `1` 高 · `2` 中 · `3` 低 · 空 = 无 |
+| `custom-remind` | 绝对时间 `yyyyMMddHHmm`，空格分隔 |
+| `custom-repeat` · `custom-repeat-from` | RRULE 子集 · `due` 或 `done` |
+| `custom-done` · `custom-abandoned` | 完成时间 · `1` |
+| `custom-pin` · `custom-list` · `custom-spent` | `1` · 清单名 · 番茄数 |
 
-All rebindable in **Settings → Keymap**.
+## 快捷键
 
-## Develop
+`Alt+Shift+*` —— 思源已占用 `Alt+1..9` 和 `Ctrl+Alt+1..6`。全部可在 **设置 → 快捷键** 里改；
+同样的动作也在块图标右键菜单里。
+
+| 按键 | 动作 |
+|---|---|
+| `1` `2` `3` `0` | 优先级 高 / 中 / 低 / 清除 |
+| `Q` `W` `E` | 截止 今天 / 明天 / 下周 |
+| `X` | 清除截止日期 |
+| `M` | 完成 / 取消完成 |
+| `D` | 打开任务面板 |
+| `U` | 置顶 / 取消置顶 |
+| `T` | 打开任务视图 |
+
+## 视图与提醒
+
+今天 · 明天 · 未来 7 天 · 收件箱 · 全部 · 已完成，另有看板、日历、四象限、统计，
+在插件自己的标签页里打开（`Alt+Shift+T`）。
+
+内核侧守护进程负责 webhook（关掉界面也会推）；前端负责思源内提示和桌面通知。
+在插件设置里配。
+
+## 开发
 
 ```bash
 pnpm install
-pnpm test            # unit tests
-pnpm test:int        # integration tests against a running SiYuan kernel
-pnpm build           # typecheck + bundle + copy into the SiYuan plugins dir
+pnpm test       # 单测
+pnpm test:int   # 集成测试（需要思源内核在跑）
+pnpm build      # 类型检查 + 打包 + 拷进思源插件目录
 ```
 
-`scripts/link.mjs` copies the build into `data/plugins/<name>`. A symlink does **not** work
-(SiYuan's `os.ReadDir` does not follow them).
-
-## Layout
+`scripts/link.mjs` 把产物拷进 `data/plugins/<name>`；**软链接不生效**
+（思源的 `os.ReadDir` 不跟随）。
 
 ```
-src/model/     pure logic: date, priority, repeat (RRULE), remind, attrs, task
-src/api/       kernel API (transport-injected, so it is unit-testable off-SiYuan)
-src/commands/  shortcuts -> attribute writes (deps-injected, fully unit-tested)
-src/ui/        dock panel
-src/plugin.ts  wiring only
+src/model/     纯逻辑：date、priority、repeat(RRULE)、remind、attrs、task
+src/api/       内核 API（注入 transport，可脱离思源单测）
+src/store/     唯一数据源：渲染 = 推导(base 快照, pending 改动)
+src/views/     视图层
+src/ui/        侧栏面板、块标菜单、设置对话框
+src/plugin/    宿主适配器（不依赖 siyuan 包）
+src/kernel.ts  提醒守护，单独打包
 ```
-
-See `TESTS.md` for the acceptance checklist and the docs in the parent knowledge base for the
-design rationale and the M0 feasibility findings.
-
-## License
 
 MIT

@@ -2,3 +2,6 @@ node_modules/
 dist/
 package.zip
 *.log
+
+# 本地专用（不进 git）
+.local/

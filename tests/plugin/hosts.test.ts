@@ -17,7 +17,6 @@ function deps(): HostDeps {
         openBlock: vi.fn(),
         openSettings: vi.fn(),
         toggleDone: vi.fn(),
-        afterCompleted: vi.fn(),
         createTask: vi.fn(),
         promoteToTask: vi.fn(),
         forgetTask: vi.fn(),

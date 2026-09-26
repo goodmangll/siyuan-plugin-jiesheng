@@ -11,7 +11,7 @@
  */
 
 import {
-    callKernel, deleteBlock, getBlockKramdown, getTaskAttrs, getTaskTitle, runSql, updateBlockMarkdown,
+    callKernel, deleteBlock, getTaskAttrs, getTaskTitle, runSql,
 } from "../api/blocks";
 import { countSelectedBlocks } from "../api/dom";
 import { setAttrsAndWait } from "../api/views";
@@ -53,7 +53,6 @@ export interface HostDeps {
     forgetTask(id: string): void;
     /** 任务写操作 */
     toggleDone(id: string): Promise<void>;
-    afterCompleted(id: string): Promise<void>;
     createTask(title: string, due: string | null): Promise<string | null>;
     promoteToTask(id: string): Promise<void>;
     /** transport 是否就绪（未就绪时命令层要明确报错，不能静默失败） */
@@ -294,8 +293,6 @@ export function buildCommandDeps(deps: HostDeps): TaskCommandDeps {
             }
             return setAttrsAndWait(id, patch);
         },
-        readKramdown: (id) => getBlockKramdown(id),
-        writeKramdown: (id, md) => updateBlockMarkdown(id, md),
         openTaskTab: () => deps.session.openTab(),
         openSettings: () => deps.openSettings(),
         togglePin: async (id: string, attrs: Record<string, string>) => {
@@ -308,7 +305,9 @@ export function buildCommandDeps(deps: HostDeps): TaskCommandDeps {
         // 这里曾经写成 `openPanel: () => {…}`，连参数都不收 ——
         // 所以命令层传下来的 focus 在插件这一层就被丢了，面板永远不聚焦。
         openPanel: (_id: string, focus?: string) => deps.session.openPanel(focus),
-        onCompleted: (id: string) => deps.afterCompleted(id),
+        // 完成走和面板/视图**同一份**实现（actions.toggleTaskDone）。
+        // 这一行曾经缺失：命令层自己拿 kramdown 判定，于是 ⌥⇧M 从没生效。
+        toggleDone: (id: string) => deps.toggleDone(id),
         toast: (m) => deps.toast(m, 3000),
     };
 }
