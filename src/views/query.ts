@@ -220,6 +220,42 @@ export function applyLocalDone<T extends { id: string; done: string | null; due:
     return [...list.filter((t) => extraIds.has(t.id)), ...list.filter((t) => !extraIds.has(t.id))];
 }
 
+/**
+ * 把「本地已知、SQL 还没追上」的完成态算到侧栏数字上。
+ *
+ * 为什么需要：读操作**不等写入落定**了（那会白等约 0.9 秒，见 plugin.ts），
+ * 所以写入可见前落地的 SQL 快照是旧的，`counts` 会跟着旧值跳一下。
+ * 既然本地知道得更新，就把差额补上。
+ *
+ * `before` 是反推出来的：唯一的本地变更就是「完成与否」，而完成与否
+ * **只影响清单归属**，不影响其它字段 —— 所以拿一个占位的非空时间戳当
+ * 「原本已完成」就够 `smartListsOf` 算准了，不需要额外记一份旧值。
+ *
+ * ⚠️ 占位值必须是**合法的 yyyyMMddHHmm**：`smartListsOf` 对已完成的任务要判
+ * 「在不在最近 14 天内」，拿一个不是日期的字符串（比如 "1"）会被字符串比较
+ * 判成超出窗口，于是「已完成」那一项少减一次 —— 真机踩过。
+ */
+export function adjustCountsForLocalDone(
+    counts: Record<SmartListId, number>,
+    local: { done: string | null; due: string | null }[],
+    today: string,
+): Record<SmartListId, number> {
+    if (local.length === 0) {
+        return counts;
+    }
+    const next = { ...counts };
+    for (const after of local) {
+        const before = { done: after.done ? null : `${today}0000`, due: after.due };
+        for (const id of smartListsOf(before, today)) {
+            next[id] = Math.max(0, next[id] - 1);
+        }
+        for (const id of smartListsOf(after, today)) {
+            next[id] = next[id] + 1;
+        }
+    }
+    return next;
+}
+
 /** 某个清单的完整 WHERE */
 function whereFor(id: SmartListId, today: string): string {
     return id === "done"
