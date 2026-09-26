@@ -165,6 +165,34 @@ export function deriveTasks(
     return add.length ? [...add, ...out] : out;
 }
 
+/**
+ * 这次刷新的快照，**是否已经反映了**这条未落定的改动？
+ *
+ * 为什么要校验：撤掉 pending 等于「把界面交还给 SQL」。可 SQL 的快照未必
+ * 已经追上 —— 只要有一次带着**写前快照**的刷新在撤掉之后落地，旧行就会被
+ * 重新显示，直到下一次刷新才消失。真机现象就是
+ * 「点完成 → 行消失 → 立刻又出现 → 一两秒后又消失」。
+ *
+ * 所以不变量是：**只有数据能证明这条改动已经生效，才允许撤掉覆盖层。**
+ *
+ * 注意「行不在结果里」也是一种证明：`未完成` 的查询本来就会把已完成的行
+ * 过滤掉 —— 这正是我们要的证据。
+ */
+function confirmsChange(
+    id: string,
+    p: PendingChange,
+    rows: ViewTask[],
+): boolean {
+    const row = rows.find((t) => t.id === id);
+    if (!p.after) {
+        return !row; // 删除：结果里没有了才算生效
+    }
+    if (p.after.done) {
+        return !row || !!row.done; // 已完成：行不见了、或行的 done 也非空
+    }
+    return !!row && !row.done; // 取消完成：行回来了且 done 为空
+}
+
 /** 把 pending 造成的差额算到侧栏数字上（数字来自 SQL，可能还没追上） */
 export function deriveCounts(
     base: Record<SmartListId, number>,
@@ -225,11 +253,16 @@ export function createTaskStore(deps: TaskStoreDeps): TaskStore {
             base = rows;
             baseCounts = c;
             // ★ 先撤「已落定」的 pending，再通知 ——
-            //   顺序反了会把同一笔差额算两遍（真机：已完成闪一下 2）
-            for (const id of settled) {
-                pending.delete(id);
+            //   顺序反了会把同一笔差额算两遍（真机：已完成闪一下 2）。
+            //   但只在**这份快照能证明改动已生效**时才撤：否则旧快照一落地，
+            //   刚完成的又冒回来（见 confirmsChange）。
+            for (const id of [...settled]) {
+                const p = pending.get(id);
+                if (!p || confirmsChange(id, p, rows)) {
+                    pending.delete(id);
+                    settled.delete(id);
+                }
             }
-            settled.clear();
             status = { state: "ready", error: "" };
         } catch (e) {
             if (mine !== gen) {
