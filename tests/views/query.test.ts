@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
+import type { SmartListId } from "../../src/views/query";
 import {
     attr, boardSql, calendarSql, countSql, doneSql, doneTasksWhere, listSql, listsSql, openTasksWhere,
-    applyLocalDone, remindCandidatesSql, SELECT_COLS, smartListIds, smartListsOf, sqlForView, tagsSql, TASK_MARK } from "../../src/views/query";
+    adjustCountsForLocalDone, applyLocalDone, remindCandidatesSql, SELECT_COLS, smartListIds, smartListsOf, sqlForView, tagsSql, TASK_MARK } from "../../src/views/query";
 
 const TODAY = "20260925";
 
@@ -331,5 +332,48 @@ describe("applyLocalDone：本地完成态盖住旧快照", () => {
         const local = new Map([["a", mk("a", "202609262300")]]);
         expect(applyLocalDone(rows, "today", T, local).map((x) => x.id)).toEqual(["b"]);
         expect(applyLocalDone(rows, "done", T, local).map((x) => x.id)).toEqual(["a"]);
+    });
+});
+
+describe("adjustCountsForLocalDone：读不等写入后，侧栏数字也要兜住", () => {
+    const T = "20260926";
+    const zero = { today: 0, tomorrow: 0, next7: 0, inbox: 0, all: 0, done: 0 } as Record<SmartListId, number>;
+
+    it("本地刚完成一条今天到期的：今天 -1、全部 -1、已完成 +1", () => {
+        const out = adjustCountsForLocalDone(
+            { ...zero, today: 1, all: 1 },
+            [{ done: "202609262300", due: T }],
+            T,
+        );
+        expect(out).toEqual({ ...zero, today: 0, all: 0, done: 1 });
+    });
+
+    it("本地刚取消完成：已完成 -1、全部 +1、今天 +1", () => {
+        const out = adjustCountsForLocalDone(
+            { ...zero, done: 1 },
+            [{ done: null, due: T }],
+            T,
+        );
+        expect(out).toEqual({ ...zero, today: 1, all: 1 });
+    });
+
+    it("没日期的那条：收件箱与全部一起动", () => {
+        const out = adjustCountsForLocalDone(
+            { ...zero, inbox: 1, all: 1 },
+            [{ done: "202609262300", due: null }],
+            T,
+        );
+        expect(out).toEqual({ ...zero, done: 1 });
+    });
+
+    it("没有本地变更时原样返回", () => {
+        const c = { ...zero, today: 3 };
+        expect(adjustCountsForLocalDone(c, [], T)).toEqual(c);
+    });
+
+    it("不会算出负数（SQL 快照已经包含这条时也不崩）", () => {
+        const out = adjustCountsForLocalDone({ ...zero }, [{ done: "202609262300", due: T }], T);
+        expect(out.today).toBe(0);
+        expect(out.done).toBe(1);
     });
 });

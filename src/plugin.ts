@@ -223,42 +223,33 @@ export default class TaskFlow extends Plugin {
     }
 
     /* ────────────────────────────────────────────────────────────────────────
-     * 「读不早于在飞的写」
+     * 为什么这里**没有**「读等一下写入」的屏障
      *
-     * 真机踩到：勾选完成后界面**先变对、约 300ms 后整个回退、约 1.2 秒后再变对**。
+     * 曾经加过：把读操作挡住、等在飞的写落定，好让读到的 SQL 快照不比本地旧。
+     * 但那是个代价极高的方案 —— 真机探针：
      *
-     * 根因是 `subscribe` 挂的 `ws-main` —— 思源**每次事务都发**这个事件，
-     * 而它发在**索引完成之前**。于是：写完属性 → 思源立刻通知视图刷新 →
-     * 那次 reload 读到的 SQL 快照还是旧的 → 把乐观更新整个覆盖回去。
+     *   写入落定 931ms
+     *   load  等写入=825ms 查询=75ms      ← 每次读白等 0.8 秒
+     *   counts 等写入=828ms 查询=135ms
      *
-     * 更一般地说：思源的属性写入对 SQL 有约 1.3 秒的可见延迟（见 util/waitFor），
-     * 所以**任何在写入飞行期间发起的读取，拿到的必然是旧快照**。
-     * 视图拿旧快照去渲染，就是「回退」。
+     * 因为「写入落定」= `setAttrsAndWait` 等到 SQL 可见，而思源的属性写入对 SQL
+     * 有 **约 2.5 秒**的可见延迟（实测 8 次：2495~2687ms，无 flush API，
+     * 顺手做一次内容更新也不可靠地催得动）。用户感知到的「还有 1 秒延迟」就是
+     * 这个屏障，不是思源直接给的。
      *
-     * 所以把这条不变量放在 host 这一层（而不是让每个组件自己小心）：
-     *   - 写方法登记到 writeChain
-     *   - 读方法执行前先等 writeChain 落定
-     * 写入落定意味着 SQL 已经追上（写方法内部都走 setAttrsAndWait），
-     * 于是「读到的快照永远不比本地已知的旧」。
+     * 正确的做法是**让读保持快**，把这 2.5 秒交给本地覆盖层去兜：
+     *   - 读永远立即返回（可能旧）
+     *   - 视图渲染时叠上「本地已知、SQL 还没追上」的状态（见 views/query.applyLocalDone）
+     *   - 写入落定后再刷新一次，落地时撤掉覆盖
      *
-     * TabApp 的乐观更新仍然有用：它负责让**点击到写入落定**这段时间
-     * 界面立刻反映结果。两者配合才是完整的。
+     * 覆盖层不只是「更快的乐观更新」—— 它是**正确性**的承担者：
+     * 旧快照随时可能落地（`ws-main` 在索引完成之前就发），只有它能把旧值挡回去。
+     * 对应的回归测试在 tests/views/TabApp.test.tsx。
      * ──────────────────────────────────────────────────────────────────────── */
-
-    /** 在飞的写库链；读操作会等它落定 */
-    private writeChain: Promise<unknown> = Promise.resolve();
-
-    /** 登记一次写库 */
-    private trackWrite<T>(p: Promise<T>): Promise<T> {
-        // 失败也要让链继续走（错误由调用方处理）
-        const settled = p.then(() => undefined, () => undefined);
-        this.writeChain = this.writeChain.then(() => settled);
-        return p;
-    }
 
     /** 视图层的宿主实现：取数 / 写数都在这一层，组件不碰思源 API */
     private buildViewHost(): ViewHost {
-        return this.withWriteBarrier({
+        return {
             today: () => toDateStr(new Date()),
             nowStamp: () => toDateTimeStr(new Date()),
 
@@ -392,41 +383,7 @@ export default class TaskFlow extends Plugin {
             },
 
             toast: (m: string) => showMessage(m, 3000),
-        });
-    }
-
-    /**
-     * 给宿主套上「读不早于在飞的写」。
-     *
-     * 用包装而不是在每个方法里手写 `await this.writeChain`：
-     * 以后新增读写方法时只需在这里登记名字，漏了也只是回到旧行为，
-     * 不会因为「忘了加一行」而产生更糟的语义。
-     */
-    private withWriteBarrier<T extends object>(host: T): T {
-        const WRITES = [
-            "setTags", "toggleDone", "setDue", "setPriority", "setList",
-            "createTask", "addSubTask", "linkToParent", "detach", "renameTask",
-        ];
-        const READS = ["load", "counts", "loadRange", "trends", "distributions", "lists"];
-        const out = { ...host } as Record<string, unknown>;
-        for (const k of READS) {
-            const fn = out[k] as ((...a: unknown[]) => Promise<unknown>) | undefined;
-            if (typeof fn !== "function") {
-                continue;
-            }
-            out[k] = async (...args: unknown[]) => {
-                await this.writeChain;
-                return fn.apply(host, args);
-            };
-        }
-        for (const k of WRITES) {
-            const fn = out[k] as ((...a: unknown[]) => Promise<unknown>) | undefined;
-            if (typeof fn !== "function") {
-                continue;
-            }
-            out[k] = (...args: unknown[]) => this.trackWrite(fn.apply(host, args));
-        }
-        return out as T;
+        };
     }
 
     onunload(): void {
@@ -680,7 +637,7 @@ export default class TaskFlow extends Plugin {
 
     /** 面板宿主：全部通过 api 层，面板本身不碰思源 API */
     private buildPanelHost() {
-        return this.withWriteBarrier({
+        return {
             // 视图里点了卡片 → 固定到那条；否则跟光标走
             currentBlockId: async () => this.pinnedTask ?? await this.resolvedTaskBlockId(),
             readAttrs: (id: string) => getTaskAttrs(id),
@@ -755,7 +712,7 @@ export default class TaskFlow extends Plugin {
             isDone: async (id: string) => ((await getTaskAttrs(id))[ATTR.done] ?? "") !== "",
             toast: (m: string) => showMessage(m, 3000),
             now: () => new Date(),
-        });
+        };
     }
 
     private buildDeps(): TaskCommandDeps {

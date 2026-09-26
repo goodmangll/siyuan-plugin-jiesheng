@@ -6,7 +6,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { SmartListId } from "./query";
-import { applyLocalDone, smartListIds, smartListsOf } from "./query";
+import { adjustCountsForLocalDone, applyLocalDone, smartListIds } from "./query";
 import type { ViewHost, ViewId } from "./host";
 import { VIEW_TABS } from "./host";
 import type { ViewTask } from "./model";
@@ -90,6 +90,21 @@ export function TabApp({ host, initialView = "today" }: { host: ViewHost; initia
      */
     const resolvedRef = useRef<Set<string>>(new Set());
 
+    /**
+     * 最近一次 SQL 给出的侧栏数字（**基线**）。
+     *
+     * 界面上的数字永远是 `推导(基线, 覆盖层)`，不是「在旧数字上加加减减」——
+     * 后者会和覆盖层重复计一次，真机踩到过（数字变 2）。
+     */
+    const baseCountsRef = useRef<Record<SmartListId, number>>(EMPTY_COUNTS);
+
+    /** 由基线 + 覆盖层推出该显示的侧栏数字 */
+    const deriveCounts = useCallback(() => adjustCountsForLocalDone(
+        baseCountsRef.current,
+        [...localDoneRef.current.values()],
+        today,
+    ), [today]);
+
     const reload = useCallback(async () => {
         const gen = ++genRef.current;
         const v = viewRef.current;
@@ -101,7 +116,6 @@ export function TabApp({ host, initialView = "today" }: { host: ViewHost; initia
                 return; // 已经有更新的一次 reload 了，这份结果作废
             }
             setTasks(list);
-            setCounts(c);
             // 只撤掉「写入已落定」的那些覆盖 —— 其余的是本地比 SQL 新，
             // 撤了就会回退（见 resolvedRef 的说明）
             const done = resolvedRef.current;
@@ -112,6 +126,13 @@ export function TabApp({ host, initialView = "today" }: { host: ViewHost; initia
                 }
                 bumpOverlay((n) => n + 1);
             }
+            // 覆盖层非空 ⇒ 还有写入没追上，这份 counts 可能是旧的 —— 不采信它，
+            // 继续用「旧基线 + 覆盖层」推。采信了会把同一笔差额算两遍
+            //（真机：已完成闪一下 2）。
+            if (localDoneRef.current.size === 0) {
+                baseCountsRef.current = c;
+            }
+            setCounts(deriveCounts());
             setState("ready");
         } catch (e) {
             if (gen !== genRef.current) {
@@ -151,27 +172,13 @@ export function TabApp({ host, initialView = "today" }: { host: ViewHost; initia
      * 写完之后 SQL 已经追上了，`reload()` 拿到的就是真值，不会回跳。
      */
     const onToggleDone = useCallback((task: ViewTask) => {
-        // 用同一套定义算出它改之前 / 改之后各属于哪些清单，只动这几个数字。
-        // 不这么算的话，要么等 1.3 秒，要么随便减一个把别的清单数字搞错。
-        const before = smartListsOf(task, today);
-        const after = smartListsOf({ ...task, done: task.done ? null : host.nowStamp() }, today);
-
         // ① 行立刻消失。「今天」里勾完就该没了；「已完成」里取消勾选同理。
         setTasks((prev) => prev.filter((t) => t.id !== task.id));
-        // ② 侧栏数字同步改，否则行没了数字还挂着
-        setCounts((prev) => {
-            const next = { ...prev };
-            for (const id of before) {
-                next[id] = Math.max(0, next[id] - 1);
-            }
-            for (const id of after) {
-                next[id] = next[id] + 1;
-            }
-            return next;
-        });
-        // ③ 登记本地覆盖：写入落定前，SQL 都会说它「还没完成」
+        // ② 登记本地覆盖：写入落定前，SQL 都会说它「还没完成」
         const optimistic = { ...task, done: task.done ? null : host.nowStamp() };
         localDoneRef.current.set(task.id, optimistic);
+        // ③ 侧栏数字由「基线 + 覆盖层」重推（不是加加减减，避免重复计）
+        setCounts(deriveCounts());
         bumpOverlay((n) => n + 1);
         // ④ 再去写库。**落定之后**才允许撤掉覆盖（那时 SQL 一定追上了）
         void host.toggleDone(task.id).then(() => {
