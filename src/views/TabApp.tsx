@@ -76,7 +76,7 @@ export function TabApp({ host, initialView = "today" }: { host: ViewHost; initia
     const current = VIEW_TABS.find((t) => t.id === view);
 
     return (
-        <div className="tf-tab" data-state={status.state} style={{ display: "flex", height: "100%", overflow: "hidden" }}>
+        <div className="jie-tab" data-state={status.state} style={{ display: "flex", height: "100%", overflow: "hidden" }}>
             <nav style={{
                 flex: "0 0 168px", borderRight: "1px solid var(--b3-border-color)",
                 padding: "8px 6px", overflowY: "auto", fontSize: 13,
@@ -102,7 +102,7 @@ export function TabApp({ host, initialView = "today" }: { host: ViewHost; initia
                       * 表头数字与列表**同一个数据源**（都来自 store），
                       * 不会再出现「已完成 0 项」而侧栏写着 1。
                       */}
-                    <span style={{ fontSize: 12, opacity: 0.5 }} data-tf-count={tasks.length}>
+                    <span style={{ fontSize: 12, opacity: 0.5 }} data-jie-count={tasks.length}>
                         {status.state === "ready" ? `${tasks.length} 项` : ""}
                     </span>
                     <span style={{ flex: 1 }} />
@@ -144,7 +144,7 @@ function NavItem({ label, count, active, onClick }: {
 }) {
     return (
         <div
-            data-tf-nav={label}
+            data-jie-nav={label}
             onClick={onClick}
             style={{
                 display: "flex", alignItems: "center", gap: 6, padding: "4px 8px",

@@ -1,7 +1,7 @@
 {
-  "name": "siyuan-plugin-task-flow",
+  "name": "siyuan-plugin-jiesheng",
   "author": "goodmangll",
-  "url": "https://github.com/goodmangll/siyuan-plugin-task-flow",
+  "url": "https://github.com/goodmangll/siyuan-plugin-jiesheng",
   "version": "0.1.0",
   "minAppVersion": "3.7.0",
   "backends": [
@@ -17,12 +17,12 @@
   ],
   "disabledInPublish": false,
   "displayName": {
-    "default": "Task Flow",
-    "zh-CN": "任务流"
+    "default": "Jiesheng",
+    "zh-CN": "结绳"
   },
   "description": {
-    "default": "Quick-set task due/priority/reminder/repeat via shortcuts and a Dock panel.",
-    "zh-CN": "用快捷键和侧栏面板快速给任务设置日期 / 优先级 / 提醒 / 重复。"
+    "default": "Turn SiYuan documents into tasks: quick-set due / priority / reminder / repeat with shortcuts and a side panel, plus built-in board, calendar, matrix and stats views.",
+    "zh-CN": "把思源文档变成任务：用快捷键和侧栏面板快速设置日期 / 优先级 / 提醒 / 重复，并自带看板 / 日历 / 四象限 / 统计视图。"
   },
   "readme": {
     "default": "README.md",

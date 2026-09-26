@@ -66,7 +66,7 @@ export async function toggleTaskDone(
             await generateNextRepeat(id, deps.generateDeps ?? buildGenerateDeps());
         } catch (e) {
             // 生成失败不影响「完成任务」本身
-            return { ok: true, message: "任务流：" + ((e as Error)?.message ?? "重复生成失败") };
+            return { ok: true, message: "结绳：" + ((e as Error)?.message ?? "重复生成失败") };
         }
     }
     return { ok: true };
@@ -82,12 +82,12 @@ function stamp(): string {
 export async function createTaskDoc(title: string, due: string | null): Promise<ActionResult> {
     const notebook = await ensureTaskNotebook();
     if (!notebook) {
-        return fail("任务流：找不到可用的笔记本，无法新建任务");
+        return fail("结绳：找不到可用的笔记本，无法新建任务");
     }
     // markdown 里**不写 `# 标题`** —— 标题由路径给出，写了会变成正文里的第一个块
     const id = await createDocWithMd(notebook, `/${sanitizeTitle(title)}`, "");
     if (!id) {
-        return fail("任务流：新建任务文档失败");
+        return fail("结绳：新建任务文档失败");
     }
     const patch: Record<string, string> = { [ATTR.task]: "1" };
     if (due) {
@@ -105,16 +105,16 @@ export async function createTaskDoc(title: string, due: string | null): Promise<
 export async function promoteBlockToTask(blockId: string): Promise<ActionResult> {
     const notebook = await ensureTaskNotebook();
     if (!notebook) {
-        return fail("任务流：找不到可用的笔记本");
+        return fail("结绳：找不到可用的笔记本");
     }
     const kr = await getBlockKramdown(blockId);
     const { title, body } = splitTaskBlock(kr);
     if (!title) {
-        return fail("任务流：这个块没有标题，无法转为任务");
+        return fail("结绳：这个块没有标题，无法转为任务");
     }
     const newId = await createDocWithMd(notebook, `/${sanitizeTitle(title)}`, body);
     if (!newId) {
-        return fail("任务流：建文档失败，原内容未改动");
+        return fail("结绳：建文档失败，原内容未改动");
     }
     await setAttrsAndWait(newId, { [ATTR.task]: "1" }, ATTR.task, "1");
     await deleteBlock(blockId);

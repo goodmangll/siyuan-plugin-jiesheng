@@ -90,10 +90,10 @@ export function Calendar({ today, host, store }: {
     return (
         <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 12px", borderBottom: "1px solid var(--b3-border-color)" }}>
-                <a data-tf-cal="prev" style={{ cursor: "pointer" }} onClick={() => setAnchor(shiftMonth(anchor, -1))}>‹</a>
-                <strong data-tf-cal="label" style={{ fontSize: 13 }}>{monthLabel(anchor)}</strong>
-                <a data-tf-cal="next" style={{ cursor: "pointer" }} onClick={() => setAnchor(shiftMonth(anchor, 1))}>›</a>
-                <a data-tf-cal="today" style={{ cursor: "pointer", fontSize: 12, opacity: 0.7 }} onClick={() => setAnchor(today)}>回到今天</a>
+                <a data-jie-cal="prev" style={{ cursor: "pointer" }} onClick={() => setAnchor(shiftMonth(anchor, -1))}>‹</a>
+                <strong data-jie-cal="label" style={{ fontSize: 13 }}>{monthLabel(anchor)}</strong>
+                <a data-jie-cal="next" style={{ cursor: "pointer" }} onClick={() => setAnchor(shiftMonth(anchor, 1))}>›</a>
+                <a data-jie-cal="today" style={{ cursor: "pointer", fontSize: 12, opacity: 0.7 }} onClick={() => setAnchor(today)}>回到今天</a>
                 <span style={{ flex: 1 }} />
                 <span style={{ fontSize: 11, opacity: 0.45 }}>拖任务到别的日子 = 改期</span>
             </div>
@@ -102,7 +102,7 @@ export function Calendar({ today, host, store }: {
                 {weekdayHeaders().map((w) => <div key={w} style={{ textAlign: "center" }}>{w}</div>)}
             </div>
 
-            <div style={{ display: "grid", gridTemplateRows: "repeat(6, 1fr)", flex: 1, minHeight: 0 }} data-tf-cal-grid="1">
+            <div style={{ display: "grid", gridTemplateRows: "repeat(6, 1fr)", flex: 1, minHeight: 0 }} data-jie-cal-grid="1">
                 {grid.map((row, ri) => (
                     <div key={ri} style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", minHeight: 0 }}>
                         {row.map((cell) => {
@@ -111,7 +111,7 @@ export function Calendar({ today, host, store }: {
                             return (
                                 <div
                                     key={cell.day}
-                                    data-tf-day={cell.day}
+                                    data-jie-day={cell.day}
                                     onDragOver={(e) => { e.preventDefault(); setOverDay(cell.day); }}
                                     onDragLeave={() => setOverDay((d) => (d === cell.day ? null : d))}
                                     onDrop={(e) => { e.preventDefault(); drop(cell.day, e.dataTransfer?.getData("text/plain") || undefined); }}
@@ -135,7 +135,7 @@ export function Calendar({ today, host, store }: {
                                         <div
                                             key={t.id}
                                             draggable
-                                            data-tf-card={t.id}
+                                            data-jie-card={t.id}
                                             onDragStart={(e) => {
                                                 e.dataTransfer?.setData("text/plain", t.id);
                                                 setDragId(t.id);
@@ -167,7 +167,7 @@ export function Calendar({ today, host, store }: {
 
             {picked && (
                 <div style={{ borderTop: "1px solid var(--b3-border-color)", maxHeight: 160, overflowY: "auto", padding: "6px 12px" }}
-                    data-tf-cal-day={picked}>
+                    data-jie-cal-day={picked}>
                     <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
                         {picked} · {pickedTasks.length} 项
                     </div>

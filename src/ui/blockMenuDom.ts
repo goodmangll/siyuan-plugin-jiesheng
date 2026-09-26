@@ -20,20 +20,20 @@
  *
  * 先照官方写法 `addItem`（万一以后思源修好了，这条路会自然生效），
  * 然后在下一个 tick 检查「我们的项进 DOM 了吗」：没进就按思源自己的标记
- * 手工补一个进去。标记是 `data-tf-menu`，据此幂等 —— 重复调用不会补两次。
+ * 手工补一个进去。标记是 `data-jie-menu`，据此幂等 —— 重复调用不会补两次。
  *
  * ⚠️ 这里用的是思源的**内部 class**（`b3-menu__item` 等）。它是一份工作区，
- *    思源修好事件顺序之后应当删掉这段。判断依据：`data-tf-menu` 已经在 DOM 里
+ *    思源修好事件顺序之后应当删掉这段。判断依据：`data-jie-menu` 已经在 DOM 里
  *    出现了，就说明官方那条路通了。
  */
 
 import type { MenuItemLike } from "./blockMenu";
 
 /** 我们补进去的项上的标记，用来判幂等 / 判官方那条路有没有通 */
-export const INJECT_MARK = "data-tf-menu";
+export const INJECT_MARK = "data-jie-menu";
 
 /** 子项上的标记 */
-const SUB_MARK = "data-tf-menu-item";
+const SUB_MARK = "data-jie-menu-item";
 
 function visibleTopMenu(doc: Document): HTMLElement | null {
     const menus = [...doc.querySelectorAll<HTMLElement>(".b3-menu")]

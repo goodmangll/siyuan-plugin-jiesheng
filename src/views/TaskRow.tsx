@@ -39,8 +39,8 @@ export function TaskRow({ task, today, host, onToggleDone, depth = 1, childCount
     const dueText = formatDue(task, today);
     return (
         <div
-            className="tf-row"
-            data-tf-task={task.id}
+            className="jie-row"
+            data-jie-task={task.id}
             data-overdue={task.overdue ? "1" : undefined}
             style={{
                 display: "flex", alignItems: "flex-start", gap: 8,
@@ -56,7 +56,7 @@ export function TaskRow({ task, today, host, onToggleDone, depth = 1, childCount
             {/* 展开/折叠子任务 */}
             {childCount > 0 ? (
                 <a
-                    data-tf-fold={task.id}
+                    data-jie-fold={task.id}
                     title={collapsed ? `展开 ${childCount} 个子任务` : "折叠子任务"}
                     style={{ flex: "0 0 auto", width: 12, marginTop: 2, fontSize: 10, opacity: 0.55, cursor: "pointer" }}
                     onClick={(e) => { e.stopPropagation(); onToggleCollapse?.(); }}
@@ -77,7 +77,7 @@ export function TaskRow({ task, today, host, onToggleDone, depth = 1, childCount
                 它写的是 custom-done（不是思源原生的 [X]） */}
             <input
                 type="checkbox"
-                data-tf-check={task.id}
+                data-jie-check={task.id}
                 checked={task.done !== null}
                 title={task.done ? `完成于 ${task.done}` : "标记完成"}
                 style={{ flex: "0 0 auto", marginTop: 3, cursor: "pointer" }}
@@ -98,7 +98,7 @@ export function TaskRow({ task, today, host, onToggleDone, depth = 1, childCount
                     {task.repeat && <span title={task.repeat}>↻</span>}
                     {task.hasReminder && <span title="有提醒">🔔</span>}
                     {task.tags.map((tag) => (
-                        <span key={tag} data-tf-tag={tag} style={{ opacity: 0.75 }}>#{tag}</span>
+                        <span key={tag} data-jie-tag={tag} style={{ opacity: 0.75 }}>#{tag}</span>
                     ))}
                 </div>
             </div>

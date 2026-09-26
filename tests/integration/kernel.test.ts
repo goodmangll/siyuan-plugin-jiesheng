@@ -5,7 +5,7 @@
  *
  * 依赖：本机思源在 127.0.0.1:6807，且 token 在 ~/.config/siyuan/api-token。
  * 内核不可达时整组跳过，并打印跳过原因（不静默）。
- * 会在 一个打开的笔记本建一个临时文档 `/__taskflow_it__`，跑完删掉。
+ * 会在 一个打开的笔记本建一个临时文档 `/__jiesheng_it__`，跑完删掉。
  */
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -21,7 +21,7 @@ import { isDone, setTaskDone } from "../../src/model/task";
 const API = "http://127.0.0.1:6807";
 const TOKEN_FILE = join(homedir(), ".config/siyuan/api-token");
 let NB = "";
-const PATH = "/__taskflow_it__";
+const PATH = "/__jiesheng_it__";
 
 const TOKEN = existsSync(TOKEN_FILE) ? readFileSync(TOKEN_FILE, "utf8").trim() : null;
 

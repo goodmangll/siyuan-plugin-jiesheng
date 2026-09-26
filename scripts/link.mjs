@@ -9,7 +9,7 @@ import { cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-const NAME = "siyuan-plugin-task-flow";
+const NAME = "siyuan-plugin-jiesheng";
 const dest = join(homedir(), "some/workspace/data/plugins", NAME);
 const root = new URL("..", import.meta.url).pathname;
 

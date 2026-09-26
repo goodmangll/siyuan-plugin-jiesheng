@@ -68,7 +68,7 @@ export function selectionIsInEditor(node: Node | null | undefined): boolean {
     if (!el) {
         return false;
     }
-    if (el.closest(".task-flow-panel")) {
+    if (el.closest(".jiesheng-panel")) {
         return false;
     }
     return !!el.closest(".protyle-wysiwyg");

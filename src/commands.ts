@@ -60,12 +60,12 @@ export async function currentTaskBlockId(deps: TaskCommandDeps): Promise<string 
     try {
         const id = await deps.activeTaskBlockId();
         if (!id) {
-            deps.toast?.("任务流：请把光标放在一个任务上");
+            deps.toast?.("结绳：请把光标放在一个任务上");
             return null;
         }
         return id;
     } catch {
-        deps.toast?.("任务流：无法确定当前任务");
+        deps.toast?.("结绳：无法确定当前任务");
         return null;
     }
 }
@@ -80,7 +80,7 @@ async function withTask(
     }
     // T18：选中多个块时只作用于光标那一个。不装作没看见 —— 明说一次。
     if ((deps.selectedBlockCount?.() ?? 0) > 1) {
-        deps.toast?.("任务流：选中了多个块，本次只作用于光标所在的那一个");
+        deps.toast?.("结绳：选中了多个块，本次只作用于光标所在的那一个");
     }
     let attrs: Record<string, string> = {};
     try {
@@ -130,13 +130,13 @@ export async function toggleDone(deps: TaskCommandDeps): Promise<void> {
     }
     const kr = await deps.readKramdown(id);
     if (!isTaskKramdown(kr)) {
-        deps.toast?.("任务流：当前块不是任务");
+        deps.toast?.("结绳：当前块不是任务");
         return;
     }
     const wasDone = isDone(kr);
     const next = setTaskDone(kr, !wasDone);
     if (next === null) {
-        deps.toast?.("任务流：无法切换完成状态");
+        deps.toast?.("结绳：无法切换完成状态");
         return;
     }
     await deps.writeKramdown(id, next);

@@ -42,7 +42,7 @@ describe("F2 光标是不是在编辑器里（在面板输入框里选文字不�
         expect(selectionIsInEditor(p)).toBe(true);
     });
     it("在面板里 → 不是", () => {
-        const panel = el("task-flow-panel");
+        const panel = el("jiesheng-panel");
         const input = document.createElement("input");
         panel.appendChild(input);
         expect(selectionIsInEditor(input)).toBe(false);

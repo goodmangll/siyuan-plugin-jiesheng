@@ -14,7 +14,7 @@ import { Plugin, fetchSyncPost, getActiveEditor, openTab, showMessage } from "si
 import { blockHitFromElement, cursorBlockId, type ProtyleLike } from "./api/dom";
 import { callKernel, setTransport, type KernelResponse } from "./api/blocks";
 import { COMMANDS } from "./commands";
-import { DEFAULT_SETTINGS, type TaskFlowSettings } from "./settings";
+import { DEFAULT_SETTINGS, type JieshengSettings } from "./settings";
 import { loadSettings, saveSettings } from "./api/settings";
 import { toDateStr } from "./model/date";
 import { createFollowScheduler, selectionIsInEditor } from "./ui/follow";
@@ -35,19 +35,19 @@ import {
     buildBlockMenuDeps, buildCommandDeps, buildPanelHost, buildViewHost, type HostDeps,
 } from "./plugin/hosts";
 
-const TAB_TYPE = "taskFlowTab";
-const DOCK_TYPE = "taskFlowDock";
+const TAB_TYPE = "jieTab";
+const DOCK_TYPE = "jieDock";
 
-const ICON = '<symbol id="iconTaskFlow" viewBox="0 0 32 32">'
+const ICON = '<symbol id="iconJiesheng" viewBox="0 0 32 32">'
     + '<path d="M16 3a13 13 0 1 0 0 26 13 13 0 0 0 0-26zm0 3a10 10 0 1 1 0 20 10 10 0 0 1 0-20z"/>'
     + '<circle cx="16" cy="16" r="3.4"/></symbol>';
 
-export default class TaskFlow extends Plugin {
+export default class Jiesheng extends Plugin {
     private panel: TaskPanelHandle | null = null;
     private tab: TabHandle | null = null;
 
     private transportReady = false;
-    private settings: TaskFlowSettings = { ...DEFAULT_SETTINGS };
+    private settings: JieshengSettings = { ...DEFAULT_SETTINGS };
 
     /**
      * 任务 id 的**同步**索引（块标菜单要同步判断「这个文档是不是任务」）。
@@ -61,7 +61,7 @@ export default class TaskFlow extends Plugin {
             );
             return rows.map((r) => r.id);
         },
-        onError: (e) => console.log("[task-flow] 任务索引刷新失败: " + e.message),
+        onError: (e) => console.log("[结绳] 任务索引刷新失败: " + e.message),
     });
 
     /** 笔记本表缓存：几乎不变，但每次 load 都拉一次是白花一个 IPC */
@@ -82,7 +82,7 @@ export default class TaskFlow extends Plugin {
         tabType: TAB_TYPE,
         dockType: DOCK_TYPE,
         tabTitle: "任务",
-        tabIcon: "iconTaskFlow",
+        tabIcon: "iconJiesheng",
         rawCaret: () => this.rawCaretBlockId(),
         resolveTask: (id) => resolveTaskBlock(id),
         openBlock: (id) => this.openBlock(id),
@@ -129,7 +129,7 @@ export default class TaskFlow extends Plugin {
                 execute: () => {
                     void cmd.run(cmdDeps).catch((e) => {
                         // 命令出错不能让编辑器崩：提示一下就行
-                        showMessage("任务流：" + ((e as Error).message || "执行失败"), 5000, "error");
+                        showMessage("结绳：" + ((e as Error).message || "执行失败"), 5000, "error");
                     });
                 },
             });
@@ -155,7 +155,7 @@ export default class TaskFlow extends Plugin {
             await this.loadSettingsOnce();
             this.daemon.start();
         } catch (e) {
-            showMessage("任务流：提醒启动失败 —— " + (e as Error).message, 5000, "error");
+            showMessage("结绳：提醒启动失败 —— " + (e as Error).message, 5000, "error");
         }
     }
 
@@ -238,11 +238,11 @@ export default class TaskFlow extends Plugin {
                     });
                 }
                 setTimeout(() => {
-                    injectTaskMenu(document, items, "iconTaskFlow");
+                    injectTaskMenu(document, items, "iconJiesheng");
                 }, 0);
             } catch (e) {
                 // 别静默吞：这里出错的表现就是「菜单里根本没有『任务』」
-                console.log("[task-flow] 块标菜单构建失败: " + String((e as Error)?.message ?? e));
+                console.log("[结绳] 块标菜单构建失败: " + String((e as Error)?.message ?? e));
             }
         });
     }
@@ -255,7 +255,7 @@ export default class TaskFlow extends Plugin {
                 config: {
                     position: "RightBottom",
                     size: { width: 320, height: 420 },
-                    icon: "iconTaskFlow",
+                    icon: "iconJiesheng",
                     title: "任务信息",
                 },
                 data: {},
@@ -268,7 +268,7 @@ export default class TaskFlow extends Plugin {
                 },
             });
         } catch (e) {
-            showMessage("任务流：侧栏面板注册失败 —— " + (e as Error).message, 6000, "error");
+            showMessage("结绳：侧栏面板注册失败 —— " + (e as Error).message, 6000, "error");
         }
     }
 
@@ -320,7 +320,7 @@ export default class TaskFlow extends Plugin {
         try {
             await generateNextRepeat(id, actions.buildGenerateDeps());
         } catch (e) {
-            showMessage("任务流：" + ((e as Error)?.message ?? "重复生成失败"), 4000, "error");
+            showMessage("结绳：" + ((e as Error)?.message ?? "重复生成失败"), 4000, "error");
         }
     }
 
@@ -361,7 +361,7 @@ export default class TaskFlow extends Plugin {
             w.openFileByURL(`siyuan://blocks/${id}`);
             return;
         }
-        showMessage("任务流：当前前端不支持跳转", 3000, "error");
+        showMessage("结绳：当前前端不支持跳转", 3000, "error");
     }
 
     private openDock(): void {

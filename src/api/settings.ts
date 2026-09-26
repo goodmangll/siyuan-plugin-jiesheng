@@ -4,15 +4,15 @@
  */
 
 import { callKernel } from "./blocks";
-import { parseSettings, SETTINGS_FILE, type TaskFlowSettings } from "../settings";
+import { parseSettings, SETTINGS_FILE, type JieshengSettings } from "../settings";
 
 /** 插件名，用来拼 storage 路径 */
-export const PLUGIN_NAME = "siyuan-plugin-task-flow";
+export const PLUGIN_NAME = "siyuan-plugin-jiesheng";
 
 const path = `data/storage/petal/${PLUGIN_NAME}/${SETTINGS_FILE}`;
 
 /** 读设置。文件不存在或坏掉都回落默认，不抛。 */
-export async function loadSettings(): Promise<TaskFlowSettings> {
+export async function loadSettings(): Promise<JieshengSettings> {
     try {
         const text = await callKernel<unknown>("/api/file/getFile", { path });
         // 该接口返回的是文件原文（不是 {code,data} 信封），可能直接是对象或字符串
@@ -24,7 +24,7 @@ export async function loadSettings(): Promise<TaskFlowSettings> {
 }
 
 /** 写设置 */
-export async function saveSettings(s: TaskFlowSettings): Promise<void> {
+export async function saveSettings(s: JieshengSettings): Promise<void> {
     const body = new FormData();
     body.append("path", path);
     body.append("file", new Blob([JSON.stringify(s, null, 2)], { type: "application/json" }), SETTINGS_FILE);

@@ -36,7 +36,7 @@ export interface BlockMenuDeps {
     onError?(message: string): void;
 }
 
-const ICON = "iconTaskFlow";
+const ICON = "iconJiesheng";
 
 /**
  * 这次点的是「什么」。

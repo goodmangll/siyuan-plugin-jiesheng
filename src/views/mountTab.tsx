@@ -8,7 +8,7 @@ export interface TabHandle {
 }
 
 export function mountTab(el: HTMLElement, host: ViewHost, initialView?: ViewId): TabHandle {
-    el.classList.add("tf-tab-root");
+    el.classList.add("jie-tab-root");
     el.style.height = "100%";
     const root: Root = createRoot(el);
     root.render(<TabApp host={host} initialView={initialView} />);

@@ -54,13 +54,13 @@ export async function generateNextRepeat(taskId: string, deps: GenerateDeps): Pr
 
         const next = nextRepeatTask(meta, deps.now());
         if (!next) {
-            deps.toast?.("任务流：重复已结束，不再生成");
+            deps.toast?.("结绳：重复已结束，不再生成");
             return null;
         }
 
         const notebook = await deps.notebookOf(taskId);
         if (!notebook) {
-            deps.toast?.("任务流：找不到任务所在笔记本，无法生成重复任务");
+            deps.toast?.("结绳：找不到任务所在笔记本，无法生成重复任务");
             return null;
         }
 
@@ -68,7 +68,7 @@ export async function generateNextRepeat(taskId: string, deps: GenerateDeps): Pr
         const body = await deps.exportBody(taskId);
         const newId = await deps.createDoc(notebook, title, composeBody(title, body));
         if (!newId) {
-            deps.toast?.("任务流：重复任务生成失败（拿不到新文档 id）");
+            deps.toast?.("结绳：重复任务生成失败（拿不到新文档 id）");
             return null;
         }
 
@@ -91,7 +91,7 @@ export async function generateNextRepeat(taskId: string, deps: GenerateDeps): Pr
         await deps.writeAttrs(newId, patch);
         return newId;
     } catch (e) {
-        deps.toast?.("任务流：重复任务生成出错 —— " + ((e as Error)?.message ?? String(e)));
+        deps.toast?.("结绳：重复任务生成出错 —— " + ((e as Error)?.message ?? String(e)));
         return null;
     }
 }

@@ -11,7 +11,7 @@
  * 而"要不要发、发到哪"必须读同一份配置。
  */
 
-export interface TaskFlowSettings {
+export interface JieshengSettings {
     /** 通用 webhook 地址；空 = 不发 */
     webhook?: string;
     /** 在思源里弹提示 */
@@ -22,14 +22,14 @@ export interface TaskFlowSettings {
 
 export const SETTINGS_FILE = "settings.json";
 
-export const DEFAULT_SETTINGS: TaskFlowSettings = {
+export const DEFAULT_SETTINGS: JieshengSettings = {
     webhook: "",
     inApp: true,
     desktop: true,
 };
 
 /** 合并成完整设置（缺字段用默认值，非法值一律当默认） */
-export function normalizeSettings(raw: unknown): TaskFlowSettings {
+export function normalizeSettings(raw: unknown): JieshengSettings {
     const o = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
     const s = (v: unknown, d: boolean): boolean => (typeof v === "boolean" ? v : d);
     const str = (v: unknown, d: string): string => (typeof v === "string" ? v.trim() : d);
@@ -41,7 +41,7 @@ export function normalizeSettings(raw: unknown): TaskFlowSettings {
 }
 
 /** 解析设置文件内容；坏 JSON 一律回落默认，不抛 */
-export function parseSettings(text: string | null | undefined): TaskFlowSettings {
+export function parseSettings(text: string | null | undefined): JieshengSettings {
     if (!text || !text.trim()) {
         return { ...DEFAULT_SETTINGS };
     }

@@ -155,7 +155,7 @@ async function saveState(): Promise<void> {
     try {
         await siyuan.storage.put(STATE_PATH, JSON.stringify(state));
     } catch (e) {
-        await siyuan.logger.warn("[task-flow] 保存游标失败", String(e));
+        await siyuan.logger.warn("[结绳] 保存游标失败", String(e));
     }
 }
 
@@ -182,7 +182,7 @@ limit 200`.trim();
         body: JSON.stringify({ stmt }),
     });
     if (!res.ok) {
-        await siyuan.logger.warn("[task-flow] SQL 失败", String(res.status));
+        await siyuan.logger.warn("[结绳] SQL 失败", String(res.status));
         return [];
     }
     const body = await res.json() as { code?: number; data?: TaskRow[] };
@@ -211,12 +211,12 @@ export async function tick(): Promise<void> {
 
     for (const ev of events) {
         await siyuan.logger.info(
-            `[task-flow] 提醒到点 ${formatRemindMessage(ev)} payload=${JSON.stringify(remindPayload(ev))}`,
+            `[结绳] 提醒到点 ${formatRemindMessage(ev)} payload=${JSON.stringify(remindPayload(ev))}`,
         );
         const results = await dispatch(CHANNELS, config, ev);
         for (const r of results) {
             // 通道失败**不影响**其它事件、也不影响游标推进（下一条还要发）
-            await siyuan.logger.info(`[task-flow] 通道 ${r.channelId} ok=${r.ok} ${r.detail ?? ""}`);
+            await siyuan.logger.info(`[结绳] 通道 ${r.channelId} ok=${r.ok} ${r.detail ?? ""}`);
         }
     }
 
@@ -229,17 +229,17 @@ export async function start(): Promise<void> {
     if (!loaded) {
         state.cursor = nowStr();
         await saveState();
-        await siyuan.logger.info(`[task-flow] 首次运行，游标初始化为 ${state.cursor}（不补推历史提醒）`);
+        await siyuan.logger.info(`[结绳] 首次运行，游标初始化为 ${state.cursor}（不补推历史提醒）`);
     }
-    await siyuan.logger.info(`[task-flow] 提醒守护启动 cursor=${state.cursor} 通道数=${CHANNELS.length}`);
+    await siyuan.logger.info(`[结绳] 提醒守护启动 cursor=${state.cursor} 通道数=${CHANNELS.length}`);
 
     if (typeof setInterval !== "function") {
-        await siyuan.logger.warn("[task-flow] 当前运行时没有 setInterval，心跳未启动");
+        await siyuan.logger.warn("[结绳] 当前运行时没有 setInterval，心跳未启动");
         return;
     }
     timer = setInterval(() => {
         void tick().catch(async (e) => {
-            await siyuan.logger.error("[task-flow] tick 失败", String(e));
+            await siyuan.logger.error("[结绳] tick 失败", String(e));
         });
     }, TICK_MS);
 }
@@ -252,4 +252,20 @@ export function stop(): void {
 }
 
 siyuan.plugin.lifecycle.onload = () => { void start(); };
+/**
+ * `onrunning` 是内核插件生命周期里**真实存在的一站**：
+ *
+ *   ready → loading → loaded → running → stopping → stopped
+ *            ↓onload   ↓onloaded  ↓onrunning  ↓onunload
+ *
+ * 官方参考实现（siyuan-note/plugin-sample/src/kernel.ts）三个钩子都绑。
+ * 不绑并不会让插件不工作，但**内核每次加载都会记一条 Error**：
+ * `lifecycle hook ["onrunning"] error: ... not bound to a function`
+ * （本机日志里已累计 17 条，好几个插件都这样。）
+ *
+ * 我们这里没什么要做的：官方在这个阶段做的是 HTTP RPC 回环和
+ * WebSocket / SSE 客户端，我们两样都不用 —— 提醒守护只要 `setInterval`
+ * 加内核 REST API，`onload` 里就够了。所以绑一个空实现，把这个契约补上。
+ */
+siyuan.plugin.lifecycle.onrunning = () => { /* 有意留空，见上 */ };
 siyuan.plugin.lifecycle.onunload = () => { stop(); };
