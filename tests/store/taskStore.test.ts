@@ -231,3 +231,55 @@ describe("TaskStore · applyPending：给日历那种「自己取一段」的视
             .toEqual(["T1", "OTHER"]);
     });
 });
+
+describe("TaskStore · 覆盖层只在数据能证明改动生效时才撤（偶发回退的根因）", () => {
+    it("★ 写入已落定、但 SQL 还是旧快照 → **不许**把刚完成的任务放回来", async () => {
+        // 真机现象：点完成 → 行消失 → 立刻又出现 → 一两秒后又消失。
+        // 机制：撤掉 pending 等于把界面交还给 SQL，而这份 SQL 快照可能还是
+        // 写前的那份（索引要约 2.5 秒才追上）。旧快照一落地，行就回来了。
+        const d = deps({ open: [task()] });
+        const s = createTaskStore(d);
+        await s.refresh();
+        expect(s.items().map((t) => t.id)).toEqual(["T1"]);
+
+        // 写库「落定」，但 SQL 侧仍是旧值（模拟索引还没追上）
+        await s.mutate("T1", task({ done: `${TODAY}2300` }), async () => { /* 落定，但 SQL 没变 */ });
+
+        // 断言：不许回退
+        expect(s.items()).toEqual([]);
+    });
+
+    it("SQL 追上之后，覆盖层正常撤掉（不能一直挂着）", async () => {
+        const d = deps({ open: [task()] });
+        const s = createTaskStore(d);
+        await s.refresh();
+
+        await s.mutate("T1", task({ done: `${TODAY}2300` }), async () => { /* SQL 还是旧的 */ });
+        expect(s.items()).toEqual([]);
+
+        // 索引追上：SQL 里它变成已完成
+        const st = d.sql();
+        st.open.length = 0;
+        st.done.push(task({ done: `${TODAY}2300` }));
+        await s.refresh();
+        await s.refresh(); // 再刷一次确认覆盖层已摘
+        expect(s.items()).toEqual([]);
+        // 而且它确实在「已完成」里，不是被覆盖层挡着
+        s.setView("done");
+        await new Promise((r) => setTimeout(r, 10));
+        expect(s.items().map((t) => t.id)).toEqual(["T1"]);
+    });
+
+    it("取消完成同理：SQL 还是旧的（行仍标已完成）→ 不许把它藏起来", async () => {
+        const d = deps({ done: [task({ id: "T1", done: `${TODAY}2300` })] });
+        const s = createTaskStore(d);
+        s.setView("done");
+        await s.refresh();
+        expect(s.items().map((t) => t.id)).toEqual(["T1"]);
+
+        await s.mutate("T1", task({ done: null }), async () => { /* SQL 没变 */ });
+        // 「已完成」视图里它该消失（本地已改成未完成）——
+        // 而 SQL 仍说它已完成，覆盖层不能被撤掉，否则它会冒回来
+        expect(s.items()).toEqual([]);
+    });
+});
