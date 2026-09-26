@@ -18,7 +18,7 @@ import { parseRule, type RepeatRule } from "./repeat";
 export const ATTR = {
     /**
      * ★ 任务标记：文档带了这个才算任务。
-     * 文档数以千计，不标记的全都不算 —— 这是「任务=文档」能用的前提。
+     * 一个笔记库里文档数以千计，不标记的全都不算 —— 这是「任务=文档」能用的前提。
      */
     task: "custom-task",
     /** 置顶标记 */

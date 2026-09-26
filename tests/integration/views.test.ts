@@ -32,13 +32,18 @@ if (TOKEN) {
             headers: { Authorization: `Token ${TOKEN}`, "Content-Type": "application/json" },
             body: JSON.stringify({ stmt: "select 1" }),
         });
-        reachable = res.ok;
+        if (!res.ok) {
+            reachable = false;
+        } else {
+            NB = await pickNotebook();
+            reachable = !!NB;
+        }
     } catch {
         reachable = false;
     }
 }
 if (!reachable) {
-    console.warn("[views:int] 内核不可达，跳过（启动思源后重跑）");
+    console.warn("[views:int] 跳过：内核不可达，或工作区里没有打开的笔记本");
 }
 
 setTransport(async (url, data) => {
@@ -49,6 +54,24 @@ setTransport(async (url, data) => {
     });
     return (await res.json()) as { code: number; msg?: string; data: unknown };
 });
+
+
+/**
+ * 选一个可用的笔记本。
+ *
+ * ⚠️ 这里**绝不能写死笔记本 id**：那既是把开发者自己的工作区信息留在公开仓库里，
+ *    也让别人 clone 下来根本跑不了（工作区里不会有同一个 id）。
+ * 没有可用笔记本时整组跳过，并说明原因（不静默）。
+ */
+async function pickNotebook(): Promise<string> {
+    const res = await fetch(API + "/api/notebook/lsNotebooks", {
+        method: "POST",
+        headers: { Authorization: "Token " + TOKEN, "Content-Type": "application/json" },
+        body: "{}",
+    });
+    const body = (await res.json()) as { data?: { notebooks?: { id: string; closed?: boolean }[] } };
+    return (body.data?.notebooks ?? []).find((n) => !n.closed)?.id ?? "";
+}
 
 const TODAY = new Date().toISOString().slice(0, 10).replace(/-/g, "");
 const docs: string[] = [];
