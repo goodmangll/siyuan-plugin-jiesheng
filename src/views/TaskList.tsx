@@ -11,12 +11,13 @@ import { buildTree } from "./tree";
 import type { ViewHost, ViewId } from "./host";
 import { TaskRow } from "./TaskRow";
 
-export function TaskList({ view, tasks, today, host, onChanged }: {
+export function TaskList({ view, tasks, today, host, onChanged, onToggleDone }: {
     view: ViewId;
     tasks: ViewTask[];
     today: string;
     host: ViewHost;
     onChanged: () => void;
+    onToggleDone: (task: ViewTask) => void;
 }) {
     const [draft, setDraft] = useState("");
     // 折叠的节点 id 集合。默认全展开 —— 折起来是用户主动的选择
@@ -71,7 +72,7 @@ export function TaskList({ view, tasks, today, host, onChanged }: {
                             task={n.task}
                             today={today}
                             host={host}
-                            onChanged={onChanged}
+                            onToggleDone={onToggleDone}
                             depth={n.depth}
                             childCount={n.childCount}
                             collapsed={n.collapsed}

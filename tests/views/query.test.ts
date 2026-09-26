@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
     attr, boardSql, calendarSql, countSql, doneSql, doneTasksWhere, listSql, listsSql, openTasksWhere,
-    remindCandidatesSql, SELECT_COLS, smartListIds, sqlForView, tagsSql, TASK_MARK,
-} from "../../src/views/query";
+    remindCandidatesSql, SELECT_COLS, smartListIds, smartListsOf, sqlForView, tagsSql, TASK_MARK } from "../../src/views/query";
 
 const TODAY = "20260925";
 
@@ -223,5 +222,59 @@ describe("Q11 提醒候选 SQL（前端与内核共用一份，避免两套漂�
         for (const col of ["as title", "as remind", "as due", "as pri", "as lst"]) {
             expect(s).toContain(col);
         }
+    });
+});
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * smartListsOf —— 乐观更新用（思源写属性到 SQL 可见约 1.3 秒，不能等）
+ *
+ * 它和 SQL 谓词是同一个定义的第二处实现，所以这里把边界写死。
+ * ──────────────────────────────────────────────────────────────────────────── */
+describe("smartListsOf：任务属于哪些智能清单", () => {
+    const TODAY = "20260926";
+
+    it("没有日期 → 收件箱 + 全部", () => {
+        expect(smartListsOf({ done: null, due: null }, TODAY).sort())
+            .toEqual(["all", "inbox"]);
+    });
+
+    it("今天到期 → 今天 + 全部", () => {
+        expect(smartListsOf({ done: null, due: "20260926" }, TODAY).sort())
+            .toEqual(["all", "today"]);
+    });
+
+    it("带时刻的今天也算今天（due 是 yyyyMMddHHmm）", () => {
+        expect(smartListsOf({ done: null, due: "202609260930" }, TODAY).sort())
+            .toEqual(["all", "today"]);
+    });
+
+    it("逾期未完成 → 仍然算今天（同类产品的「今天」含逾期）", () => {
+        expect(smartListsOf({ done: null, due: "20260920" }, TODAY).sort())
+            .toEqual(["all", "today"]);
+    });
+
+    it("明天到期 → 明天 **和** 未来 7 天（两个谓词本来就重叠）", () => {
+        expect(smartListsOf({ done: null, due: "20260927" }, TODAY).sort())
+            .toEqual(["all", "next7", "tomorrow"]);
+    });
+
+    it("第 7 天的边界：day+7 属于未来 7 天", () => {
+        expect(smartListsOf({ done: null, due: "20261003" }, TODAY).sort())
+            .toEqual(["all", "next7"]);
+    });
+
+    it("第 8 天 → 哪个日期清单都不进，但仍在全部里", () => {
+        expect(smartListsOf({ done: null, due: "20261004" }, TODAY).sort())
+            .toEqual(["all"]);
+    });
+
+    it("已完成且在 14 天内 → 只属于已完成", () => {
+        expect(smartListsOf({ done: "202609260900", due: "20260926" }, TODAY))
+            .toEqual(["done"]);
+    });
+
+    it("已完成但超出 14 天 → 哪个清单都不进", () => {
+        expect(smartListsOf({ done: "202609011200", due: "20260901" }, TODAY))
+            .toEqual([]);
     });
 });

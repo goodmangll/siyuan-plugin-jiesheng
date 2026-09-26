@@ -451,7 +451,19 @@ export function TaskPanel({ host, onReady }: { host: TaskPanelHost; onReady?: (r
 
             {/* 底部动作 */}
             <div style={{ ...rowStyle, marginTop: 10, borderTop: "1px solid var(--b3-border-color)", paddingTop: 8 }}>
-                <button className="b3-button b3-button--outline" style={btn} onClick={() => void host.toggleDone(blockId).then(() => reload(blockId))}>
+                {/*
+                  * 乐观：先把按钮的文案/状态改了，再去写库。
+                  *
+                  * 面板读属性走的是 API（`getTaskAttrs` → `getBlockAttrs`，立即生效），
+                  * 而 `toggleDone` 里的 `setAttrsAndWait` 等的是 **SQL 可见性**
+                  * （真机实测 1302ms）—— 面板等了一个自己根本不需要的等待，
+                  * 表现就是「点完成，过一秒多按钮才变」。
+                  */}
+                <button className="b3-button b3-button--outline" style={btn}
+                    onClick={() => {
+                        setDone((prev) => !prev);
+                        void host.toggleDone(blockId).then(() => reload(blockId));
+                    }}>
                     {done ? "取消完成" : "完成"}
                 </button>
                 <button className="b3-button b3-button--outline" style={btn} onClick={() => void apply(patchAbandon(!meta.abandoned))}>

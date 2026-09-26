@@ -129,6 +129,45 @@ export function doneTasksWhere(today: string, days = DONE_WINDOW_DAYS): string {
     ].join(" and ");
 }
 
+/**
+ * 这条任务现在属于哪些智能清单。
+ *
+ * ⚠️ 和上面那组 SQL 谓词（`smartDateWhere` / `doneTasksWhere`）是**同一个定义的第二处实现**，
+ *    两者必须一致。放在同一个文件里紧挨着，就是为了改一边时能看见另一边。
+ *    它存在的唯一原因：思源写完属性要 **约 1.3 秒** SQL 才看得到（真机实测），
+ *    勾选完成后要立刻把侧栏数字改了，不能等那 1.3 秒。
+ *
+ * 注意 today 与 next7 的重叠不是笔误：`smartDateWhere` 里「明天」是
+ * `like 'day+1%'`、「未来 7 天」是 `>= day+1 and < day+8`，所以**明天到期的两条都进**。
+ */
+export function smartListsOf(
+    t: { done: string | null; due: string | null },
+    today: string,
+): SmartListId[] {
+    if (t.done) {
+        // 「已完成」只看最近 DONE_WINDOW_DAYS 天
+        return t.done.slice(0, 8) >= plusDays(today, -DONE_WINDOW_DAYS) ? ["done"] : [];
+    }
+    const due = t.due ?? "";
+    const out: SmartListId[] = ["all"];
+    if (!due) {
+        out.push("inbox");
+        return out;
+    }
+    // 「今天」= 今天到期 **加上** 已逾期未完成（和 SQL 一致）
+    if (due.startsWith(today) || due < today) {
+        out.push("today");
+    }
+    const d1 = plusDays(today, 1);
+    if (due.startsWith(d1)) {
+        out.push("tomorrow");
+    }
+    if (due >= d1 && due < plusDays(today, 8)) {
+        out.push("next7");
+    }
+    return out;
+}
+
 /** 某个清单的完整 WHERE */
 function whereFor(id: SmartListId, today: string): string {
     return id === "done"

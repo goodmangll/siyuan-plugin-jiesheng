@@ -18,11 +18,17 @@ const PRI_COLOR: Record<string, string> = {
 
 const PRI_TITLE: Record<string, string> = { high: "高", medium: "中", low: "低", none: "无" };
 
-export function TaskRow({ task, today, host, onChanged, depth = 1, childCount = 0, collapsed = false, onToggleCollapse }: {
+export function TaskRow({ task, today, host, onToggleDone, depth = 1, childCount = 0, collapsed = false, onToggleCollapse }: {
     task: ViewTask;
     today: string;
     host: ViewHost;
-    onChanged: () => void;
+    /**
+     * 勾选完成 / 取消完成。
+     *
+     * 把整条 task 传出去（而不是只传 id）：调用方要**立刻**把这条从列表和
+     * 侧栏数字里拿掉，不能等思源那约 1.3 秒的索引延迟（真机实测）。
+     */
+    onToggleDone: (task: ViewTask) => void;
     /** 1 = 顶层任务，2 = 子任务…（子任务=子文档，层级来自文档路径） */
     depth?: number;
     /** 直属子任务数 */
@@ -76,7 +82,7 @@ export function TaskRow({ task, today, host, onChanged, depth = 1, childCount = 
                 title={task.done ? `完成于 ${task.done}` : "标记完成"}
                 style={{ flex: "0 0 auto", marginTop: 3, cursor: "pointer" }}
                 onClick={(e) => e.stopPropagation()}
-                onChange={() => { void host.toggleDone(task.id).then(onChanged); }}
+                onChange={() => { onToggleDone(task); }}
             />
             <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13, lineHeight: 1.5, wordBreak: "break-word" }}>
