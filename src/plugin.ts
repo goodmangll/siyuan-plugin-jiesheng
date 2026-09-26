@@ -226,6 +226,7 @@ export default class TaskFlow extends Plugin {
     private buildViewHost(): ViewHost {
         return {
             today: () => toDateStr(new Date()),
+            nowStamp: () => toDateTimeStr(new Date()),
 
             load: async (view: ViewId, today: string) => {
                 // 分发在 views/query.sqlForView 里（纯函数、已测）——

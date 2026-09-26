@@ -6,7 +6,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { SmartListId } from "./query";
-import { smartListIds } from "./query";
+import { smartListIds, smartListsOf } from "./query";
 import type { ViewHost, ViewId } from "./host";
 import { VIEW_TABS } from "./host";
 import type { ViewTask } from "./model";
@@ -51,6 +51,41 @@ export function TabApp({ host, initialView = "today" }: { host: ViewHost; initia
 
     const onChanged = useCallback(() => { void reload(); }, [reload]);
 
+    /**
+     * 勾选完成 / 取消完成 —— **乐观更新**。
+     *
+     * 为什么不能等：思源的 `setBlockAttrs` 虽然 60ms 就返回，但 SQL 要
+     * **约 1.3 秒**才读得到新值（真机实测 1302ms）。而 `toggleDone` 里用了
+     * `setAttrsAndWait`（它就是为了「写完立刻重载会读到旧值」才存在的），
+     * 于是整条链——写属性 → 等可见 → 可能有重复任务生成 → 重载——
+     * resolve 之前界面纹丝不动，用户看到的就是「点了完成，过一会才动」。
+     *
+     * 所以这里先按本地算好的结果改界面，再去写库、再对账。
+     * 写完之后 SQL 已经追上了，`reload()` 拿到的就是真值，不会回跳。
+     */
+    const onToggleDone = useCallback((task: ViewTask) => {
+        // 用同一套定义算出它改之前 / 改之后各属于哪些清单，只动这几个数字。
+        // 不这么算的话，要么等 1.3 秒，要么随便减一个把别的清单数字搞错。
+        const before = smartListsOf(task, today);
+        const after = smartListsOf({ ...task, done: task.done ? null : host.nowStamp() }, today);
+
+        // ① 行立刻消失。「今天」里勾完就该没了；「已完成」里取消勾选同理。
+        setTasks((prev) => prev.filter((t) => t.id !== task.id));
+        // ② 侧栏数字同步改，否则行没了数字还挂着
+        setCounts((prev) => {
+            const next = { ...prev };
+            for (const id of before) {
+                next[id] = Math.max(0, next[id] - 1);
+            }
+            for (const id of after) {
+                next[id] = next[id] + 1;
+            }
+            return next;
+        });
+        // ③ 再去写库，写完对账
+        void host.toggleDone(task.id).then(onChanged);
+    }, [host, today, onChanged]);
+
     const smart = VIEW_TABS.filter((t) => t.group === "smart");
     const owned = VIEW_TABS.filter((t) => t.group === "view");
     const current = VIEW_TABS.find((t) => t.id === view);
@@ -90,7 +125,8 @@ export function TabApp({ host, initialView = "today" }: { host: ViewHost; initia
                         加载失败：{error}
                     </div>
                 ) : isSmartList(view) ? (
-                    <TaskList view={view} tasks={tasks} today={today} host={host} onChanged={onChanged} />
+                    <TaskList view={view} tasks={tasks} today={today} host={host}
+                        onChanged={onChanged} onToggleDone={onToggleDone} />
                 ) : view === "board" ? (
                     <Board tasks={tasks} today={today} host={host} onChanged={onChanged} />
                 ) : view === "calendar" ? (

@@ -30,6 +30,8 @@ export const VIEW_TABS: { id: ViewId; label: string; group: "smart" | "view" }[]
 export interface ViewHost {
     /** 今天（yyyyMMdd）。不在组件里取，方便测试注入。 */
     today(): string;
+    /** 当前时刻，`yyyyMMddHHmm` —— 乐观更新时本地先算完成时刻用 */
+    nowStamp(): string;
     /** 拉某个视图的任务 */
     load(view: ViewId, today: string): Promise<ViewTask[]>;
     /** 侧边栏计数 */
