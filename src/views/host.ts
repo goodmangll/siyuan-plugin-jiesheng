@@ -34,6 +34,18 @@ export interface ViewHost {
     nowStamp(): string;
     /** 拉某个视图的任务 */
     load(view: ViewId, today: string): Promise<ViewTask[]>;
+    /**
+     * 列表与侧栏数字**一次取回**（同一条 SQL、同一份快照）。
+     *
+     * 为什么不能分成两次：`load` 与 `counts` 并行发两条查询时，它们**会跨过
+     * 索引提交那一刻** —— 计数已看到写入、列表还没有。真机抓到过
+     * `items=1 但 counts.done=2`：覆盖层被正确保留，差额又加到了已经含它的
+     * 基数上，重复计一次。两条查询只隔几十毫秒，所以是偶发。
+     */
+    loadWithCounts(view: ViewId, today: string): Promise<{
+        tasks: ViewTask[];
+        counts: Record<SmartListId, number>;
+    }>;
     /** 侧边栏计数 */
     counts(today: string): Promise<Record<SmartListId, number>>;
     /** 所有用过的清单名（看板列要用：没任务的清单也得能出现，否则拖不进去） */

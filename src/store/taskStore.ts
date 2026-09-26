@@ -24,9 +24,11 @@
  * 1. **读操作不等写入落定。** 思源的属性写入对 SQL 有约 2.5 秒的可见延迟
  *    （实测 2495~2687ms），等它会让每次读白等 0.8 秒。所以读保持快、
  *    pending 负责兜住这段时间。
- * 2. **pending 只能在「这次写入自己落定」后撤。** 点击之前就发起的那次刷新
- *    会带着旧快照回来，撤了 pending 就等于把乐观结果还回去 —— 界面整个回退。
- *    所以用 `settled` 集合区分「谁落定了」，而不是「有一次刷新回来了」。
+ * 2. **撤 pending 的判据是「这份快照能证明改动已生效」，不是「写入落定了」。**
+ *    点击之前就发起的那次刷新会带着旧快照回来，撤了就等于把乐观结果还回去。
+ *    而「写入落定」这个标志本身还会滞后最多 120ms（`setAttrsAndWait` 的轮询
+ *    间隔）—— 落在这段时间里的刷新会看到「基数已含这笔、覆盖层却在」，
+ *    差额被加第二次（真机：列表 1 行、侧栏写 2）。认数据、不认标志。
  */
 
 import { smartListsOf, type SmartListId } from "../views/query";
@@ -34,10 +36,17 @@ import type { ViewId } from "../views/host";
 import type { ViewTask } from "../views/model";
 
 export interface TaskStoreDeps {
-    /** 拉某个视图的行 */
-    load(view: ViewId, today: string): Promise<ViewTask[]>;
-    /** 拉侧栏数字 */
-    counts(today: string): Promise<Record<SmartListId, number>>;
+    /**
+     * 列表与侧栏数字**一次取回**。
+     *
+     * ⚠️ 必须是**一次**：分成两条查询时它们会跨过索引提交那一刻，
+     * 于是「计数已含这笔改动、列表还没有」，而覆盖层被正确保留、
+     * 差额又加到已经含它的基数上 → 重复计一次（真机：侧栏 2、列表 1 行）。
+     */
+    loadWithCounts(view: ViewId, today: string): Promise<{
+        tasks: ViewTask[];
+        counts: Record<SmartListId, number>;
+    }>;
     /** 今天，`yyyyMMdd` */
     today: string;
     /** 当前时刻，`yyyyMMddHHmm` —— 本地先算完成时刻用 */
@@ -166,31 +175,40 @@ export function deriveTasks(
 }
 
 /**
- * 这次刷新的快照，**是否已经反映了**这条未落定的改动？
+ * 这份快照**是否已经反映了**这条未落定的改动？
  *
- * 为什么要校验：撤掉 pending 等于「把界面交还给 SQL」。可 SQL 的快照未必
- * 已经追上 —— 只要有一次带着**写前快照**的刷新在撤掉之后落地，旧行就会被
- * 重新显示，直到下一次刷新才消失。真机现象就是
- * 「点完成 → 行消失 → 立刻又出现 → 一两秒后又消失」。
+ * 撤掉 pending 等于「把界面交还给 SQL」。可 SQL 的快照未必已经追上 ——
+ * 只要有一次带着**写前快照**的刷新在撤掉之后落地，旧行就会被重新显示。
+ * 真机现象：点完成 → 行消失 → 立刻又出现 → 一两秒后又消失。
  *
  * 所以不变量是：**只有数据能证明这条改动已经生效，才允许撤掉覆盖层。**
  *
- * 注意「行不在结果里」也是一种证明：`未完成` 的查询本来就会把已完成的行
- * 过滤掉 —— 这正是我们要的证据。
+ * ⚠️ 「行不在结果里」只有在**旧状态本来会出现在这个视图里**时才算证据。
+ *    否则「这个视图本来就不含它」会被误判成「已生效」，覆盖层提前撤掉。
+ *
+ * ⚠️ 判据不能依赖「写入是否落定」：`setAttrsAndWait` **每 120ms 才轮询一次**，
+ *    SQL 已经看到新值时，那个标志最多还差 120ms 才置上。落在这段时间里的刷新
+ *    会看到「基数已含这笔改动、覆盖层却没撤」→ 差额被加第二次
+ *    （真机：列表 1 行、侧栏写 2）。认数据、不认标志就没这个问题。
  */
-function confirmsChange(
+function snapshotReflects(
     id: string,
     p: PendingChange,
     rows: ViewTask[],
+    view: ViewId,
+    today: string,
 ): boolean {
     const row = rows.find((t) => t.id === id);
+    const couldHaveBeenListed = !!p.before && belongsTo(p.before, view, today);
     if (!p.after) {
-        return !row; // 删除：结果里没有了才算生效
+        return !row && couldHaveBeenListed; // 删除
     }
-    if (p.after.done) {
-        return !row || !!row.done; // 已完成：行不见了、或行的 done 也非空
+    if (row) {
+        // 行还在：看它有没有跟上
+        return p.after.done ? !!row.done : !row.done;
     }
-    return !!row && !row.done; // 取消完成：行回来了且 done 为空
+    // 行不见了：只有「旧状态本该在这个视图里」才说明是它被过滤掉了
+    return couldHaveBeenListed;
 }
 
 /** 把 pending 造成的差额算到侧栏数字上（数字来自 SQL，可能还没追上） */
@@ -212,6 +230,8 @@ export function deriveCounts(
         }
     };
     for (const p of pending.values()) {
+        // 注意：已被快照承认的条目在 refresh 里就从 pending 移走了，
+        // 所以走到这里的都是「基数还没含它」的 —— 直接加差额就是对的
         bump(p.before, -1);
         bump(p.after, +1);
     }
@@ -226,7 +246,6 @@ export function createTaskStore(deps: TaskStoreDeps): TaskStore {
 
     const pending = new Map<string, PendingChange>();
     /** 已经落定、可以撤掉 pending 的 id */
-    const settled = new Set<string>();
     /** 代次号：只有最新一次刷新的结果允许落地 */
     let gen = 0;
     let kernelTimer: ReturnType<typeof setTimeout> | null = null;
@@ -243,24 +262,19 @@ export function createTaskStore(deps: TaskStoreDeps): TaskStore {
     const refresh = async (): Promise<void> => {
         const mine = ++gen;
         try {
-            const [rows, c] = await Promise.all([
-                deps.load(view, deps.today),
-                deps.counts(deps.today),
-            ]);
+            const { tasks: rows, counts: c } = await deps.loadWithCounts(view, deps.today);
             if (mine !== gen) {
                 return; // 已经有更新的一次刷新了，这份作废
             }
             base = rows;
             baseCounts = c;
-            // ★ 先撤「已落定」的 pending，再通知 ——
-            //   顺序反了会把同一笔差额算两遍（真机：已完成闪一下 2）。
-            //   但只在**这份快照能证明改动已生效**时才撤：否则旧快照一落地，
-            //   刚完成的又冒回来（见 confirmsChange）。
-            for (const id of [...settled]) {
-                const p = pending.get(id);
-                if (!p || confirmsChange(id, p, rows)) {
-                    pending.delete(id);
-                    settled.delete(id);
+            // ★ 撤覆盖层的判据是**这份快照自己能不能证明改动已生效**，
+            //   不是「写入是否落定」—— 后者有个最多 120ms 的滞后窗口
+            //   （setAttrsAndWait 的轮询间隔），落进去就会重复计一次
+            //   （真机：列表 1 行、侧栏写 2）。
+            for (const [id, p] of [...pending]) {
+                if (snapshotReflects(id, p, rows, view, deps.today)) {
+                    pending.delete(id); // 基数里已经有这笔了，撤掉覆盖层
                 }
             }
             status = { state: "ready", error: "" };
@@ -339,7 +353,6 @@ export function createTaskStore(deps: TaskStoreDeps): TaskStore {
                 deps.onMutateError(e as Error);
                 return;
             }
-            settled.add(id);
             await refresh();
         },
 

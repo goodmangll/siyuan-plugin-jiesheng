@@ -21,19 +21,27 @@ function deps(opts: { open?: ViewTask[]; done?: ViewTask[] } = {}) {
         now: () => `${TODAY}2300`,
         onMutateError: vi.fn(),
         sql: () => state,
+        // ★ 测试里也必须是「一次取回」：真实 host 就是这么做的，
+        //   mock 分成两次就测不出「两条查询错位」那类问题
         load: vi.fn(async (v: string) =>
             v === "done" ? [...state.done] : v === "all" ? [...state.open]
                 : [...state.open].filter((t) => t.due === TODAY)),
-        counts: vi.fn(async () => ({
-            today: state.open.filter((t) => t.due === TODAY).length,
-            tomorrow: 0, next7: 0, inbox: 0,
-            all: state.open.length, done: state.done.length,
+        counts: vi.fn(),
+        loadWithCounts: vi.fn(async (v: string) => ({
+            tasks: v === "done" ? [...state.done] : v === "all" ? [...state.open]
+                : [...state.open].filter((t) => t.due === TODAY),
+            counts: {
+                today: state.open.filter((t) => t.due === TODAY).length,
+                tomorrow: 0, next7: 0, inbox: 0,
+                all: state.open.length, done: state.done.length,
+            },
         })),
     };
     return d as unknown as TaskStoreDeps & {
         sql(): { open: ViewTask[]; done: ViewTask[] };
         load: ReturnType<typeof vi.fn>;
         counts: ReturnType<typeof vi.fn>;
+        loadWithCounts: ReturnType<typeof vi.fn>;
         onMutateError: ReturnType<typeof vi.fn>;
     };
 }
@@ -177,12 +185,12 @@ describe("TaskStore · 落定与对账", () => {
         const d = deps({ open: [task()] });
         const s = createTaskStore(d);
         await s.refresh();
-        const before = d.load.mock.calls.length;
+        const before = d.loadWithCounts.mock.calls.length;
         s.pokeKernelChange();
         s.pokeKernelChange();
         s.pokeKernelChange();
         await new Promise((r) => setTimeout(r, 250));
-        expect(d.load.mock.calls.length).toBe(before + 1);
+        expect(d.loadWithCounts.mock.calls.length).toBe(before + 1);
     });
 });
 
@@ -281,5 +289,72 @@ describe("TaskStore · 覆盖层只在数据能证明改动生效时才撤（偶
         // 「已完成」视图里它该消失（本地已改成未完成）——
         // 而 SQL 仍说它已完成，覆盖层不能被撤掉，否则它会冒回来
         expect(s.items()).toEqual([]);
+    });
+});
+
+describe("TaskStore · 列表与数字必须一次取回（偶发「侧栏 2、列表 1 行」的根因）", () => {
+    it("★ 刷新只调 loadWithCounts，不分别调 load 与 counts", async () => {
+        // 分成两条查询时它们会跨过索引提交那一刻：计数已看到写入、列表还没有。
+        // 覆盖层被正确保留（列表证明不了），差额又加到了已经含它的基数上
+        // → 重复计一次。真机表现就是侧栏「已完成 2」而列表只有 1 行。
+        const d = deps({ open: [task()] });
+        const s = createTaskStore(d);
+        await s.refresh();
+        expect(d.loadWithCounts).toHaveBeenCalled();
+        expect(d.counts).not.toHaveBeenCalled();
+    });
+
+    it("列表与数字来自同一份快照 → 覆盖层撤掉前后，两者都自洽", async () => {
+        const d = deps({ open: [task()] });
+        const s = createTaskStore(d);
+        await s.refresh();
+
+        // 写入落定但 SQL 还没追上：列表说它是未完成、数字也说 done=0 + 覆盖层 = 1
+        await s.mutate("T1", task({ done: `${TODAY}2300` }), async () => { /* SQL 没变 */ });
+        expect(s.items()).toEqual([]);
+        expect(s.counts().done).toBe(1);
+        expect(s.counts().all).toBe(0);
+    });
+});
+
+describe("TaskStore · 覆盖层的撤销不能依赖「写入落定」这个标志", () => {
+    it("★ 快照已含这笔改动、但写入还没「落定」→ 不许重复计一次", async () => {
+        // 真机机制：setAttrsAndWait 每 120ms 才轮询一次。索引在 t 提交后
+        // SQL 立刻看到新值，而「落定」标志最多还差 120ms 才置上。
+        // 落在这段时间里的刷新会看到「基数已含这笔、覆盖层却在」——
+        // 差额被加第二次，表现就是列表 1 行、侧栏写 2。
+        const d = deps({ open: [task()] });
+        const s = createTaskStore(d);
+        s.setView("done");
+        await s.refresh();
+        expect(s.counts().done).toBe(0);
+
+        let settleLater: () => void = () => undefined;
+        const p = s.mutate("T1", task({ done: `${TODAY}2300` }), () => new Promise<void>((r) => { settleLater = r; }));
+
+        // SQL 先追上了（索引已提交），而写入的 promise 还没 resolve
+        const st = d.sql();
+        st.open.length = 0;
+        st.done.push(task({ done: `${TODAY}2300` }));
+        await s.refresh();
+
+        // 断言：数字不许是 2
+        expect(s.items().map((t) => t.id)).toEqual(["T1"]);
+        expect(s.counts().done).toBe(1);
+
+        settleLater();
+        await p;
+        expect(s.counts().done).toBe(1);
+    });
+
+    it("快照还没追上时，覆盖层照旧补差额（不能提前撤）", async () => {
+        const d = deps({ open: [task()] });
+        const s = createTaskStore(d);
+        s.setView("done");
+        await s.refresh();
+
+        void s.mutate("T1", task({ done: `${TODAY}2300` }), () => new Promise(() => {}));
+        expect(s.counts().done).toBe(1);
+        expect(s.items().map((t) => t.id)).toEqual(["T1"]);
     });
 });

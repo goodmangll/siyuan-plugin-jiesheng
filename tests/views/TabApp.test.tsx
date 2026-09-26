@@ -60,12 +60,23 @@ function makeHost(opts: {
             if (opts.readDelay) { await delay(opts.readDelay); }
             return snap;
         }),
-        counts: vi.fn(async () => {
+        counts: vi.fn(),
+        // ★ 真实 host 是「列表 + 数字一次取回」（同一条 SQL、同一份快照）。
+        //   mock 也必须如此，否则测不出「两条查询跨过索引提交那一刻」那类问题：
+        //   真机抓到过「列表 1 行、侧栏 done=2」—— 数字已含这笔改动、
+        //   列表还没有，覆盖层保留的同时差额又被加了一次。
+        loadWithCounts: vi.fn(async (view: ViewId) => {
             await inflight;
+            const snap = view === "done" ? [...done] : view === "all" ? [...open]
+                : [...open].filter((t) => t.due === TODAY);
+            if (opts.readDelay) { await delay(opts.readDelay); }
             return {
-                today: open.filter((t) => t.due === TODAY).length,
-                tomorrow: 0, next7: 0, inbox: 0,
-                all: open.length, done: done.length,
+                tasks: snap,
+                counts: {
+                    today: open.filter((t) => t.due === TODAY).length,
+                    tomorrow: 0, next7: 0, inbox: 0,
+                    all: open.length, done: done.length,
+                },
             };
         }),
         toggleDone: vi.fn(async (id: string) => {
@@ -149,7 +160,7 @@ describe("TabApp · 写库期间切视图（真机踩到的竞态）", () => {
         await act(async () => { await clickNav("已完成"); });
         await act(async () => { await new Promise((r) => setTimeout(r, 150)); });
 
-        const views = (host.load as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
+        const views = (host.loadWithCounts as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
         expect(views[views.length - 1]).toBe("done");
         expect(mainCount()).toBe("1");
         expect(navCount("已完成")).toBe("1");
@@ -159,13 +170,14 @@ describe("TabApp · 写库期间切视图（真机踩到的竞态）", () => {
         // 手动让 `load` 第一次极慢、之后很快
         const host = makeHost({ open: [task()] });
         let first = true;
-        (host.load as ReturnType<typeof vi.fn>).mockImplementation(async (view: ViewId) => {
+        (host.loadWithCounts as ReturnType<typeof vi.fn>).mockImplementation(async (view: ViewId) => {
             if (first) {
                 first = false;
                 await new Promise((r) => setTimeout(r, 80));
-                return [];
+                return { tasks: [], counts: { today: 0, tomorrow: 0, next7: 0, inbox: 0, all: 0, done: 0 } };
             }
-            return view === "done" ? [{ ...task(), done: "202609262300" }] : [];
+            const tasks = view === "done" ? [{ ...task(), done: "202609262300" }] : [];
+            return { tasks, counts: { today: tasks.length, tomorrow: 0, next7: 0, inbox: 0, all: tasks.length, done: tasks.length } };
         });
 
         render(<TabApp host={host} initialView="today" />);

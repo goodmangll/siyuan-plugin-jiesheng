@@ -15,7 +15,7 @@ import {
     createDocWithMd, removeDocByID, runSql, setTransport,
 } from "../../src/api/blocks";
 import { setAttrsAndWait } from "../../src/api/views";
-import { boardSql, calendarSql, countSql, countsSql, doneSql, listSql, smartListIds } from "../../src/views/query";
+import { boardSql, calendarSql, countSql, countsFromRow, countsSql, doneSql, listSql, listWithCountsSql, smartListIds } from "../../src/views/query";
 import { toViewTasks, type TaskRow } from "../../src/views/model";
 
 const API = "http://127.0.0.1:6807";
@@ -115,6 +115,33 @@ describe.skipIf(!reachable)("V-INT 文档模型：每条视图 SQL 都能被内�
         expect(rows).toHaveLength(1);
         for (const id of smartListIds()) {
             expect(typeof rows[0][id]).toBe("number");
+        }
+    });
+
+    it("listWithCountsSql：列表与数字一条 SQL、**真的能执行**，且列表为空也拿得到数字", async () => {
+        // 「列表为空但仍要数字」是 `left join ... on 1=1` 那个技巧的用途 ——
+        // 不这么写，空列表时一行都不返回，数字就丢了
+        for (const v of ["all", "today", "done", "board"]) {
+            const rows = await runSql<TaskRow & Record<string, unknown>>(
+                listWithCountsSql(v, TODAY),
+            );
+            expect(rows.length, v).toBeGreaterThanOrEqual(1);
+            const c = countsFromRow(rows[0]);
+            for (const id of smartListIds()) {
+                expect(typeof c[id], `${v}.${id}`).toBe("number");
+            }
+            // 列表行里 cnt_* 之外的才是任务行；空列表时 id 为空
+            const real = rows.filter((r) => r.id);
+            expect(real.length).toBe(rows.length - (rows[0].id ? 0 : 1));
+        }
+    });
+
+    it("listWithCountsSql 的数字与独立 countsSql 一致", async () => {
+        const rows = await runSql<Record<string, unknown>>(listWithCountsSql("all", TODAY));
+        const mine = countsFromRow(rows[0]);
+        const alone = (await runSql<Record<string, number>>(countsSql({ today: TODAY })))[0];
+        for (const id of smartListIds()) {
+            expect(mine[id], id).toBe(Number(alone[id] ?? 0));
         }
     });
 

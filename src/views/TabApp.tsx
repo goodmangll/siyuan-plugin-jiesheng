@@ -34,8 +34,7 @@ export function TabApp({ host, initialView = "today" }: { host: ViewHost; initia
     if (storeRef.current === null || storeRef.current.host !== host) {
         const store = createTaskStore({
             today,
-            load: (view, t) => host.load(view, t),
-            counts: (t) => host.counts(t),
+            loadWithCounts: (view, t) => host.loadWithCounts(view, t),
             now: () => host.nowStamp(),
             onMutateError: (e) => host.toast?.((e?.message || "操作失败").slice(0, 120)),
         });
