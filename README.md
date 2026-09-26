@@ -1,78 +1,66 @@
-# Jiesheng for SiYuan · 结绳
+# Jiesheng · 结绳
 
-Quick-set task attributes — **due date, priority, reminder, repeat** — with keyboard shortcuts and a side panel.
+Turn SiYuan documents into tasks. Set date, priority, reminder and repeat with shortcuts or a
+side panel, browse them in built-in views, and get reminders with the UI closed.
 
-> Status: **M1 (model + commands + entry) done.** The editable panel is M2.
+## Model
 
-## Why
+A task is **a SiYuan document** marked `custom-task="1"`. Sub-tasks are sub-documents, the list
+is the notebook. Everything else is a block attribute:
 
-SiYuan already has the pieces: native task blocks, QueryView dashboards, a task list dock.
-What's missing is the *fast* part — giving a task a date/priority without opening the block-attribute
-dialog and typing `20260925` by hand.
-
-Jiesheng adds exactly that, and nothing else. **It does not add any view.**
-
-## Data model
-
-Tasks are ordinary SiYuan task-list blocks (`- [ ] …`). Everything is stored in block attributes:
-
-| attribute | meaning | format |
-|---|---|---|
-| `custom-due` | due | `yyyyMMdd` (all-day) or `yyyyMMddHHmm` |
-| `custom-start` | start | same |
-| `custom-pri` | priority | `1` high · `2` medium · `3` low · empty = none |
-| `custom-remind` | reminders | absolute `yyyyMMddHHmm`, space-separated |
-| `custom-repeat` | repeat rule | RRULE subset, e.g. `FREQ=WEEKLY;BYDAY=FR` |
-| `custom-list` | lightweight list name | text |
-| `custom-done` | completion time | `yyyyMMddHHmm` |
-| `custom-abandoned` | abandoned | `1` |
-| `custom-spent` | pomodoros spent | number |
-
-Completion itself stays native: `- [ ]` / `- [X]`. No extra attribute.
-
-Sub-tasks are nested `- [ ]` blocks. Notes are documents (convert with SiYuan's built-in
-`li2Doc`), matching a similar product's own task/note split.
+| attribute | meaning |
+|---|---|
+| `custom-task` | `1` = this document is a task |
+| `custom-due` · `custom-start` | `yyyyMMdd` (all-day) or `yyyyMMddHHmm` |
+| `custom-pri` | `1` high · `2` medium · `3` low · empty = none |
+| `custom-remind` | absolute `yyyyMMddHHmm`, space-separated |
+| `custom-repeat` · `custom-repeat-from` | RRULE subset · `due` or `done` |
+| `custom-done` · `custom-abandoned` | completion timestamp · `1` |
+| `custom-pin` · `custom-list` · `custom-spent` | `1` · list name · pomodoros |
 
 ## Shortcuts
 
-SiYuan already occupies `Alt+1..9` (docks) and `Ctrl+Alt+1..6` (headings), so `Alt+Shift+*` is used:
+`Alt+Shift+*` — SiYuan already takes `Alt+1..9` and `Ctrl+Alt+1..6`. Rebindable in
+**Settings → Keymap**; the same actions sit on the block-icon right-click menu.
 
 | key | action |
 |---|---|
-| `Alt+Shift+1/2/3` | priority high / medium / low |
-| `Alt+Shift+0` | clear priority |
-| `Alt+Shift+Q / W / E` | due today / tomorrow / next week (keeps all-day vs. timed form) |
-| `Alt+Shift+X` | clear due date |
-| `Alt+Shift+M` | toggle done |
-| `Alt+Shift+D` | open the task panel |
+| `1` `2` `3` `0` | priority high / medium / low / clear |
+| `Q` `W` `E` | due today / tomorrow / next week |
+| `X` | clear due date |
+| `M` | toggle done |
+| `D` | open the task panel |
+| `U` | pin / unpin |
+| `T` | open the task views |
 
-All rebindable in **Settings → Keymap**.
+## Views & reminders
+
+Today · Tomorrow · Next 7 days · Inbox · All · Done, plus Kanban, Calendar, Matrix, Stats — in a
+plugin tab (`Alt+Shift+T`).
+
+The kernel daemon pushes webhooks (works with the UI closed); the front end adds in-app toasts
+and desktop notifications. Configure in the plugin settings.
 
 ## Develop
 
 ```bash
 pnpm install
-pnpm test            # unit tests
-pnpm test:int        # integration tests against a running SiYuan kernel
-pnpm build           # typecheck + bundle + copy into the SiYuan plugins dir
+pnpm test       # unit tests
+pnpm test:int   # integration tests against a running SiYuan kernel
+pnpm build      # typecheck + bundle + copy into the SiYuan plugins dir
 ```
 
-`scripts/link.mjs` copies the build into `data/plugins/<name>`. A symlink does **not** work
-(SiYuan's `os.ReadDir` does not follow them).
-
-## Layout
+`scripts/link.mjs` copies the build into `data/plugins/<name>`; a symlink does **not** work
+(SiYuan's `os.ReadDir` doesn't follow them).
 
 ```
 src/model/     pure logic: date, priority, repeat (RRULE), remind, attrs, task
-src/api/       kernel API (transport-injected, so it is unit-testable off-SiYuan)
-src/commands/  shortcuts -> attribute writes (deps-injected, fully unit-tested)
-src/ui/        dock panel
-src/plugin.ts  wiring only
+src/api/       kernel API (transport-injected → unit-testable off-SiYuan)
+src/store/     the single data source: render = derive(base, pending)
+src/views/     the view layer
+src/ui/        dock panel, block menu, settings dialog
+src/plugin/    host adapters (no siyuan-package dependency)
+src/kernel.ts  reminder daemon, bundled separately
 ```
-
-See `TESTS.md` for the acceptance checklist and the docs in the parent knowledge base for the
-design rationale and the M0 feasibility findings.
-
-## License
 
 MIT

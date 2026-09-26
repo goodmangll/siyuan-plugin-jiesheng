@@ -24,7 +24,6 @@ import { openSettingsDialog } from "./ui/settingsDialog";
 import { resolveTaskBlock } from "./api/blocks";
 import { buildBlockMenuItems } from "./ui/blockMenu";
 import { injectTaskMenu } from "./ui/blockMenuDom";
-import { generateNextRepeat } from "./generate";
 import * as actions from "./plugin/actions";
 import { createSession } from "./plugin/session";
 import { createReminderDaemon, notifyDesktop } from "./plugin/reminder";
@@ -110,7 +109,6 @@ export default class Jiesheng extends Plugin {
             openBlock: (id) => this.openBlock(id),
             openSettings: () => this.openSetting(),
             toggleDone: (id) => this.toggleDone(id),
-            afterCompleted: (id) => this.afterCompleted(id),
             createTask: (title, due) => this.createTask(title, due),
             promoteToTask: (id) => this.promoteToTask(id),
             forgetTask: (id) => this.taskIndex.forget(id),
@@ -313,14 +311,6 @@ export default class Jiesheng extends Plugin {
         const r = await actions.toggleTaskDone(id);
         if (r.message) {
             showMessage(r.message, 4000, "error");
-        }
-    }
-
-    private async afterCompleted(id: string): Promise<void> {
-        try {
-            await generateNextRepeat(id, actions.buildGenerateDeps());
-        } catch (e) {
-            showMessage("结绳：" + ((e as Error)?.message ?? "重复生成失败"), 4000, "error");
         }
     }
 
