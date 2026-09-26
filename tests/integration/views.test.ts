@@ -15,7 +15,7 @@ import {
     createDocWithMd, removeDocByID, runSql, setTransport,
 } from "../../src/api/blocks";
 import { setAttrsAndWait } from "../../src/api/views";
-import { boardSql, calendarSql, countSql, doneSql, listSql, smartListIds } from "../../src/views/query";
+import { boardSql, calendarSql, countSql, countsSql, doneSql, listSql, smartListIds } from "../../src/views/query";
 import { toViewTasks, type TaskRow } from "../../src/views/model";
 
 const API = "http://127.0.0.1:6807";
@@ -98,6 +98,24 @@ describe.skipIf(!reachable)("V-INT 文档模型：每条视图 SQL 都能被内�
             expect(Array.isArray(rows)).toBe(true);
             const c = await runSql<{ c: number }>(countSql(id, { today: TODAY }));
             expect(typeof c[0]?.c).toBe("number");
+        }
+    });
+
+    it("countsSql：一条 SQL 拿 6 个数字，且**真的能执行**", async () => {
+        // ★ 这一条是补的：`as all` 是 SQL 保留字，字符串断言全绿、
+        //   真机一打开就 `near "all": syntax error`。SQL 必须真跑一遍。
+        const rows = await runSql<Record<string, number>>(countsSql({ today: TODAY }));
+        expect(rows).toHaveLength(1);
+        for (const id of smartListIds()) {
+            expect(typeof rows[0][id]).toBe("number");
+        }
+    });
+
+    it("countsSql 与逐条 countSql 结果一致（同源，不能各算各的）", async () => {
+        const one = (await runSql<Record<string, number>>(countsSql({ today: TODAY })))[0];
+        for (const id of smartListIds()) {
+            const rows = await runSql<{ c: number }>(countSql(id, { today: TODAY }));
+            expect(one[id]).toBe(rows[0]?.c ?? 0);
         }
     });
 

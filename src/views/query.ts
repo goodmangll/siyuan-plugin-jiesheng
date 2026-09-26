@@ -288,6 +288,22 @@ from blocks b
 where ${whereFor(list, opts.today)}`;
 }
 
+/**
+ * 6 个侧栏数字**一条 SQL** 拿全。
+ *
+ * 原来是 6 次并发的 `/api/query/sql` —— 加上列表与笔记本表，一次重载要 8 个 IPC。
+ * 改成 6 个标量子查询之后只剩 1 个来回。条件复用同一个 `whereFor`，
+ * 所以不会和 `countSql` 漂移。
+ */
+export function countsSql(opts: SqlOptions): string {
+    // ★ 别名必须加引号：`all` 是 SQL 保留字，`as all` 直接语法错。
+    //   字符串断言测试抓不住这个 —— 只有打到内核跑一遍才会炸（真机踩到）。
+    const parts = smartListIds().map(
+        (id) => `(select count(*) from blocks b where ${whereFor(id, opts.today)}) as "${id}"`,
+    );
+    return `select ${parts.join(", ")}`;
+}
+
 /** 看板：按清单分组（清单在映射层从笔记本名或 custom-list 得出） */
 export function boardSql(opts: SqlOptions): string {
     const limit = opts.limit ?? DEFAULT_LIMIT;

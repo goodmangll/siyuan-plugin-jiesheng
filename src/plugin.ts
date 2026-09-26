@@ -16,7 +16,8 @@ import {
 } from "./api/views";
 import { callKernel, createDocWithMd, runSql } from "./api/blocks";
 import { mountTab, type TabHandle } from "./views/mountTab";
-import { calendarSql, countSql, listsSql, remindCandidatesSql, smartListIds, sqlForView, type SmartListId } from "./views/query";
+import { calendarSql, countsSql, listsSql, remindCandidatesSql, smartListIds, sqlForView, type SmartListId } from "./views/query";
+import { isTaskDataChange } from "./views/txFilter";
 import {
     createdTrendSql, doneTrendSql, fillSeries, listDistSql, priorityDistSql, recentDays,
 } from "./views/stats";
@@ -265,11 +266,15 @@ export default class TaskFlow extends Plugin {
             },
 
             counts: async (today: string) => {
-                const pairs = await Promise.all(smartListIds().map(async (id) => {
-                    const rows = await runSql<{ c: number }>(countSql(id, { today }));
-                    return [id, rows[0]?.c ?? 0] as const;
-                }));
-                return Object.fromEntries(pairs) as Record<SmartListId, number>;
+                // ★ 一条 SQL 拿 6 个数字。原来是 6 次并发的 IPC ——
+                //   一次重载因此要 8 个来回（1 列表 + 1 笔记本表 + 6 计数）。
+                const rows = await runSql<Record<string, number>>(countsSql({ today }));
+                const r = rows[0] ?? {};
+                const out = {} as Record<SmartListId, number>;
+                for (const id of smartListIds()) {
+                    out[id] = Number(r[id] ?? 0);
+                }
+                return out;
             },
 
             loadRange: async (from: string, to: string) => {
@@ -376,10 +381,33 @@ export default class TaskFlow extends Plugin {
             },
 
             subscribe: (onChange: () => void) => {
-                // 外部改动（编辑器里改了属性）也要让视图跟上，否则看板会是旧的
-                const handler = (): void => { onChange(); };
+                // 外部改动（编辑器里改了属性）也要让视图跟上，否则看板会是旧的。
+                //
+                // ⚠️ 但**不能**收到 `ws-main` 就刷新：那是内核所有推送的总线，
+                //   插件重载、后台任务进度、同步状态都会走它。真机静置 10 秒，
+                //   什么都没做也重载了 7 次（每次 8 个 IPC）。
+                //   只认「任务数据真的变了」（见 views/txFilter）+ 防抖。
+                let timer: ReturnType<typeof setTimeout> | null = null;
+                const handler = (event: CustomEvent): void => {
+                    if (!isTaskDataChange(event?.detail)) {
+                        return;
+                    }
+                    if (timer !== null) {
+                        return; // 合并同一批改动
+                    }
+                    timer = setTimeout(() => {
+                        timer = null;
+                        onChange();
+                    }, 150);
+                };
                 this.eventBus.on("ws-main", handler);
-                return () => { this.eventBus.off("ws-main", handler); };
+                return () => {
+                    if (timer !== null) {
+                        clearTimeout(timer);
+                        timer = null;
+                    }
+                    this.eventBus.off("ws-main", handler);
+                };
             },
 
             toast: (m: string) => showMessage(m, 3000),
@@ -499,14 +527,23 @@ export default class TaskFlow extends Plugin {
     }
 
     /** 笔记本 id → 名字。文档任务的清单默认取它。 */
+    /** 笔记本表缓存：几乎不变，但每次 load 都拉一次是白花一个 IPC */
+    private notebookCache: { at: number; map: Record<string, string> } | null = null;
+
     private async notebookMap(): Promise<Record<string, string>> {
+        const now = Date.now();
+        if (this.notebookCache && now - this.notebookCache.at < 30_000) {
+            return this.notebookCache.map;
+        }
         try {
             const res = await callKernel<{ notebooks?: { id: string; name: string }[] }>(
                 "/api/notebook/lsNotebooks", {},
             );
-            return Object.fromEntries((res?.notebooks ?? []).map((n) => [n.id, n.name]));
+            const map = Object.fromEntries((res?.notebooks ?? []).map((n) => [n.id, n.name]));
+            this.notebookCache = { at: now, map };
+            return map;
         } catch {
-            return {};
+            return this.notebookCache?.map ?? {};
         }
     }
 
