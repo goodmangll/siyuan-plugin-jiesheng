@@ -5,7 +5,7 @@
  *
  * 依赖：本机思源在 127.0.0.1:6807，且 token 在 ~/.config/siyuan/api-token。
  * 内核不可达时整组跳过，并打印跳过原因（不静默）。
- * 会在 一个打开的笔记本建一个临时文档 `/__jiesheng_it__`，跑完删掉。
+ * 会在一个打开的笔记本里建临时文档 `/__jiesheng_it__`，跑完删掉。
  */
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -33,16 +33,38 @@ if (!TOKEN) {
     try {
         const probe = await fetch(API + "/api/system/version", { headers: { Authorization: "Token " + TOKEN } });
         const body = (await probe.json()) as { code?: number; data?: string };
-        reachable = probe.ok && body.code === 0;
-        console.log(reachable
-            ? `[integration] 内核可达，版本 ${body.data}`
-            : `[integration] 跳过：探测失败 status=${probe.status} body=${JSON.stringify(body).slice(0, 140)}`);
+        if (probe.ok && body.code === 0) {
+            NB = await pickNotebook();
+            reachable = !!NB;
+            console.log(reachable
+                ? `[integration] 内核可达，版本 ${body.data}，用笔记本 ${NB}`
+                : "[integration] 跳过：工作区里没有打开的笔记本");
+        } else {
+            console.log(`[integration] 跳过：探测失败 status=${probe.status} body=${JSON.stringify(body).slice(0, 140)}`);
+        }
     } catch (e) {
         console.warn(`[integration] 跳过：连不上 ${API} —— ${(e as Error).message}`);
     }
 }
 
 let docId: string | null = null;
+
+/**
+ * 选一个可用的笔记本。
+ *
+ * ⚠️ 这里**绝不能写死笔记本 id**：那既是把开发者自己的工作区信息留在公开仓库里，
+ *    也让别人 clone 下来根本跑不了（工作区里不会有同一个 id）。
+ * 没有可用笔记本时整组跳过，并说明原因（不静默）。
+ */
+async function pickNotebook(): Promise<string> {
+    const res = await fetch(API + "/api/notebook/lsNotebooks", {
+        method: "POST",
+        headers: { Authorization: "Token " + TOKEN, "Content-Type": "application/json" },
+        body: "{}",
+    });
+    const body = (await res.json()) as { data?: { notebooks?: { id: string; closed?: boolean }[] } };
+    return (body.data?.notebooks ?? []).find((n) => !n.closed)?.id ?? "";
+}
 
 async function kernel(url: string, data?: Record<string, unknown>) {
     const r = await fetch(API + url, {

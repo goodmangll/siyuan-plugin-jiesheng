@@ -9,7 +9,7 @@ describe("Q1 基础谓词：任务 = **被标记为任务的文档**", () => {
     it("只认文档", () => {
         expect(openTasksWhere()).toContain("b.type='d'");
     });
-    it("**必须显式标记** —— 文档数以千计，不能全算任务", () => {
+    it("**必须显式标记** —— 库里文档数以千计，不能全算任务", () => {
         const w = openTasksWhere();
         expect(w).toContain(TASK_MARK);
         expect(w).toContain("a.value='1'");
