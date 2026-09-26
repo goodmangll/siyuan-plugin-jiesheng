@@ -4,7 +4,7 @@
  * 画布用全屏 Tab 而不是 Dock —— 看板要横排多列、日历要 7 列网格，侧栏放不下。
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { SmartListId } from "./query";
 import { smartListIds, smartListsOf } from "./query";
 import type { ViewHost, ViewId } from "./host";
@@ -27,19 +27,60 @@ export function TabApp({ host, initialView = "today" }: { host: ViewHost; initia
 
     const today = host.today();
 
+    /**
+     * 当前视图。
+     *
+     * **reload 不能闭包捕获 `view`** —— 真机踩到：`onChanged` 是
+     * `useCallback(..., [reload])`，而 `reload` 依赖 `view`，所以「点完成」
+     * 那一刻就把 `view` 定死了。而写库要**约 1.3 秒**才 resolve，
+     * 用户在这期间切了视图，这次 reload 就会拿**过期的 view** 去查，
+     * 把 `tasks` 覆盖成上一个视图的列表，而 `counts` 是现查的 ——
+     * 表现就是「已完成 0 项 / 这里空着」但侧栏写着「已完成 1」。
+     *
+     * 真机探针（切视图后紧接着写库 resolve）：
+     *   reload 开始 view=done     → load 回来 行数=1
+     *   reload 开始 view=today    ← ★ 过期视图
+     *   load 回来 view=today 行数=0  ← ★ 把正确结果覆盖掉了
+     *   counts 回来 done=1
+     *
+     * 所以从 ref 里取**调用这一刻**的 view。
+     */
+    const viewRef = useRef(view);
+    viewRef.current = view;
+
+    /**
+     * 代次号：只有最新一次 reload 的结果允许落地。
+     *
+     * `load` 与 `counts` 是两次独立的 SQL，各自要几十毫秒，而思源的属性写入
+     * 对 SQL 有约 1.3 秒的可见延迟 —— 并发触发的两次 reload 很容易交错，
+     * 让「列表」来自这一次、「数字」来自上一次。丢弃过期结果就没这个问题。
+     */
+    const genRef = useRef(0);
+
     const reload = useCallback(async () => {
+        const gen = ++genRef.current;
+        const v = viewRef.current;
         try {
-            const list = await host.load(view, today);
+            // 并行取，别串行 —— 串行会让两次查询相差约 100ms，
+            // 这个窗口足够跨过「写入刚可见」那条边界。
+            const [list, c] = await Promise.all([host.load(v, today), host.counts(today)]);
+            if (gen !== genRef.current) {
+                return; // 已经有更新的一次 reload 了，这份结果作废
+            }
             setTasks(list);
-            setCounts(await host.counts(today));
+            setCounts(c);
             setState("ready");
         } catch (e) {
+            if (gen !== genRef.current) {
+                return;
+            }
             setError((e as Error)?.message ?? String(e));
             setState("error");
         }
-    }, [host, view, today]);
+    }, [host, today]);
 
-    useEffect(() => { void reload(); }, [reload]);
+    // 切视图要重新取（reload 现在不依赖 view 了，得显式触发）
+    useEffect(() => { void reload(); }, [view, reload]);
 
     // 思源里改了东西（比如用快捷键改了属性）→ 视图跟上
     useEffect(() => {
