@@ -9,12 +9,14 @@ import { useEffect, useState, type DragEvent as ReactDragEvent } from "react";
 import type { Priority } from "../model/priority";
 import { boardColumns, formatDue, type BoardGroupBy, type ViewTask } from "./model";
 import type { ViewHost } from "./host";
+import type { TaskStore } from "../store/taskStore";
 
-export function Board({ tasks, today, host, onChanged }: {
+export function Board({ tasks, today, host, store }: {
     tasks: ViewTask[];
     today: string;
     host: ViewHost;
-    onChanged: () => void;
+    /** 写入走 store：先本地生效、再写库、落定后对账（见 store/taskStore.ts） */
+    store: TaskStore;
 }) {
     const [by, setBy] = useState<BoardGroupBy>("list");
     const [dragId, setDragId] = useState<string | null>(null);
@@ -40,10 +42,17 @@ export function Board({ tasks, today, host, onChanged }: {
         if (!id) {
             return;
         }
-        const done = by === "list"
-            ? host.setList(id, key)
-            : host.setPriority(id, key as Priority);
-        void done.then(onChanged);
+        const t = tasks.find((x) => x.id === id);
+        if (!t) {
+            return;
+        }
+        // ★ 乐观：卡片立刻落到新列，不等思源那约 2.5 秒的索引延迟
+        if (by === "list") {
+            void store.mutate(id, { ...t, list: key }, () => host.setList(id, key));
+        } else {
+            const pri = key as Priority;
+            void store.mutate(id, { ...t, priority: pri }, () => host.setPriority(id, pri));
+        }
     };
 
     return (

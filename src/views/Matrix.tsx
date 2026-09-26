@@ -10,6 +10,8 @@
 import { useState } from "react";
 import { matrixCell, formatDue, QUADRANT_TITLE, type Quadrant, type ViewTask } from "./model";
 import type { ViewHost } from "./host";
+import type { TaskStore } from "../store/taskStore";
+import type { Priority } from "../model/priority";
 
 const ORDER: Quadrant[] = ["q1", "q2", "q3", "q4"];
 const HINT: Record<Quadrant, string> = {
@@ -19,11 +21,12 @@ const HINT: Record<Quadrant, string> = {
     q4: "既不重要也不急",
 };
 
-export function Matrix({ tasks, today, host, onChanged }: {
+export function Matrix({ tasks, today, host, store }: {
     tasks: ViewTask[];
     today: string;
     host: ViewHost;
-    onChanged: () => void;
+    /** 写入走 store：先本地生效、再写库、落定后对账 */
+    store: TaskStore;
 }) {
     const [dragId, setDragId] = useState<string | null>(null);
     const [over, setOver] = useState<Quadrant | null>(null);
@@ -40,7 +43,10 @@ export function Matrix({ tasks, today, host, onChanged }: {
         if (!id) return;
         // 落进「重要」那两个格子 → 高优先级；落进另外两个 → 清掉优先级
         const important = q === "q1" || q === "q2";
-        void host.setPriority(id, important ? "high" : "none").then(onChanged);
+        const pri: Priority = important ? "high" : "none";
+        const t = tasks.find((x) => x.id === id);
+        if (!t) return;
+        void store.mutate(id, { ...t, priority: pri }, () => host.setPriority(id, pri));
     };
 
     return (
