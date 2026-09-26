@@ -185,3 +185,49 @@ describe("TaskStore · 落定与对账", () => {
         expect(d.load.mock.calls.length).toBe(before + 1);
     });
 });
+
+describe("TaskStore · applyPending：给日历那种「自己取一段」的视图用", () => {
+    const mk = (id: string, day: string) => task({ id, due: day, day });
+
+    it("没改动时原样返回（热路径不拷贝）", async () => {
+        const d = deps({ open: [task()] });
+        const s = createTaskStore(d);
+        await s.refresh();
+        const rows = [task()];
+        expect(s.applyPending(rows)).toBe(rows);
+    });
+
+    it("改期后那一条在新日子上出现（日历按 t.day 分格）", async () => {
+        const d = deps({ open: [task()] });
+        const s = createTaskStore(d);
+        await s.refresh();
+        void s.mutate("T1", mk("T1", "20260930"), never);
+        const out = s.applyPending([mk("T1", TODAY)]);
+        expect(out.map((t) => t.day)).toEqual(["20260930"]);
+    });
+
+    it("从范围外挪进来的也要出现（否则拖到本月外就凭空消失）", async () => {
+        const d = deps({ open: [task()] });
+        const s = createTaskStore(d);
+        await s.refresh();
+        void s.mutate("T9", mk("T9", "20261005"), never);
+        expect(s.applyPending([]).map((t) => t.id)).toEqual(["T9"]);
+    });
+
+    it("删除的那条要从结果里去掉", async () => {
+        const d = deps({ open: [task()] });
+        const s = createTaskStore(d);
+        await s.refresh();
+        void s.mutate("T1", null, never);
+        expect(s.applyPending([mk("T1", TODAY)])).toEqual([]);
+    });
+
+    it("无关的行不动", async () => {
+        const d = deps({ open: [task()] });
+        const s = createTaskStore(d);
+        await s.refresh();
+        void s.mutate("T1", mk("T1", "20260930"), never);
+        expect(s.applyPending([mk("T1", TODAY), mk("OTHER", TODAY)]).map((t) => t.id))
+            .toEqual(["T1", "OTHER"]);
+    });
+});

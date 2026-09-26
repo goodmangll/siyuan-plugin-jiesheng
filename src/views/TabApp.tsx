@@ -121,7 +121,7 @@ export function TabApp({ host, initialView = "today" }: { host: ViewHost; initia
                 ) : view === "board" ? (
                     <Board tasks={tasks} today={today} host={host} store={store} />
                 ) : view === "calendar" ? (
-                    <Calendar today={today} host={host} onChanged={() => void store.refresh()} />
+                    <Calendar today={today} host={host} store={store} />
                 ) : view === "matrix" ? (
                     <Matrix tasks={tasks} today={today} host={host} store={store} />
                 ) : view === "stats" ? (

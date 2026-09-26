@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it } from "vitest";
-import { countSelectedBlocks, cursorBlockIdFrom, taskBlockIdFromElement } from "../../src/api/dom";
+import { blockHitFromElement, countSelectedBlocks, cursorBlockIdFrom, taskBlockIdFromElement } from "../../src/api/dom";
 
 /**
  * 这一层是 DOM 胶水，以前完全靠真机手测 —— 结果就漏掉了下面这个 bug。
@@ -108,5 +108,65 @@ describe("D5 多块选中的识别（T18：要么全生效，要么明确提示�
         const b = buildDom();
         b.classList.add("protyle-wysiwyg--select");
         expect(countSelectedBlocks(document)).toBe(2);
+    });
+});
+
+describe("D6 块标菜单：从点击的元素同步判断「点的是什么」", () => {
+    function build(): { inTaskDoc: HTMLElement; plain: HTMLElement; listItem: HTMLElement } {
+        const protyle = document.createElement("div");
+        protyle.className = "protyle";
+        protyle.dataset.nodeId = "DOC_1";
+        const wys = document.createElement("div");
+        wys.className = "protyle-wysiwyg";
+        const p = document.createElement("div");
+        p.dataset.nodeId = "PARA_1";
+        p.dataset.type = "NodeParagraph";
+        // 老模型的 - [ ] 列表项
+        const li = document.createElement("div");
+        li.dataset.nodeId = "LI_1";
+        li.dataset.subtype = "t";
+        p.appendChild(li);
+        wys.appendChild(p);
+        protyle.appendChild(wys);
+        document.body.appendChild(protyle);
+
+        const plainDoc = document.createElement("div");
+        plainDoc.className = "protyle";
+        plainDoc.dataset.nodeId = "DOC_2";
+        const wys2 = document.createElement("div");
+        wys2.className = "protyle-wysiwyg";
+        const p2 = document.createElement("div");
+        p2.dataset.nodeId = "PARA_2";
+        wys2.appendChild(p2);
+        plainDoc.appendChild(wys2);
+        document.body.appendChild(plainDoc);
+
+        return { inTaskDoc: p, plain: p2, listItem: li };
+    }
+
+    it("普通段落：给出块 id 与**所属文档 id**（新模型靠后者判任务）", () => {
+        const { inTaskDoc } = build();
+        const hit = blockHitFromElement(inTaskDoc);
+        expect(hit.blockId).toBe("PARA_1");
+        expect(hit.docId).toBe("DOC_1");
+        expect(hit.isTaskItem).toBe(false);
+    });
+
+    it("- [ ] 列表项：isTaskItem 为真，块 id 取**最近**那层（嵌套也命中自己）", () => {
+        const { listItem } = build();
+        const hit = blockHitFromElement(listItem);
+        expect(hit.blockId).toBe("LI_1");
+        expect(hit.isTaskItem).toBe(true);
+    });
+
+    it("另一篇文档里的段落：docId 是它自己的文档，不会串到上一篇", () => {
+        const { plain } = build();
+        expect(blockHitFromElement(plain).docId).toBe("DOC_2");
+    });
+
+    it("null / 不在编辑器里 → 全空，不抛", () => {
+        expect(blockHitFromElement(null)).toEqual({ blockId: null, docId: null, isTaskItem: false });
+        const orphan = document.createElement("div");
+        expect(blockHitFromElement(orphan).docId).toBeNull();
     });
 });

@@ -91,6 +91,13 @@ afterAll(async () => {
     }
 });
 
+/**
+ * ⚠️ 这些用例的超时给到 20 秒，不是随手放大：
+ * `setAttrsAndWait` 只保证「等到 SQL 可见就走了」，而思源的属性写入对 SQL
+ * 有 **约 2.5 秒**的可见延迟（实测 2495~2687ms）。一个用例里写两次属性
+ * 就要等两轮，默认 5 秒必然超时 —— 之前那 3 条红就是这么来的，
+ * 会被误读成「功能坏了」。
+ */
 describe.skipIf(!reachable)("V-INT 文档模型：每条视图 SQL 都能被内核执行", () => {
     it("5 个智能清单的列表与计数 SQL 全部可执行", async () => {
         for (const id of smartListIds()) {
@@ -127,19 +134,32 @@ describe.skipIf(!reachable)("V-INT 文档模型：每条视图 SQL 都能被内�
 
     it("**只有被标记的文档才算任务** —— 普通文档不能混进来", async () => {
         const rows = await runSql<TaskRow>(listSql("all", { today: TODAY }));
-        const titles = toViewTasks(rows, TODAY).map((t) => t.title);
-        expect(titles).toContain("视图任务甲");
-        expect(titles).toContain("视图任务乙");
-        expect(titles).not.toContain("视图任务丙（非任务）");
+        const mine = toViewTasks(rows, TODAY).filter((t) => t.path.startsWith(`/${PREFIX}-`));
+        const titles = mine.map((t) => t.title);
+        expect(titles).toContain(`${PREFIX}-甲`);
+        expect(titles).toContain(`${PREFIX}-乙`);
+        expect(titles).not.toContain(`${PREFIX}-丙`);
     });
 
     it("标题真的读得到（文档标题在 content 里，不是空）", async () => {
         const rows = await runSql<TaskRow>(listSql("all", { today: TODAY }));
-        const hit = toViewTasks(rows, TODAY).find((t) => t.title === "视图任务甲");
-        expect(hit, "读不到文档标题 —— 可能是取错了字段").toBeTruthy();
+        const hit = toViewTasks(rows, TODAY).find((t) => t.id === taskDoc);
+        expect(hit?.title, "读不到文档标题 —— 可能是取错了字段").toBeTruthy();
     });
 
-    it("属性真的读得出来，且能进「今天」", async () => {
+    it("★ 文档标题来自**路径**，不是正文里的 `# 标题`", async () => {
+        // 这条把真机行为钉住：createDocWithMd(notebook, path, markdown) 的标题
+        // 取的是 path 的最后一段；markdown 里的 `# 视图任务甲` 只是正文的第一个块，
+        // **不会**变成文档标题。
+        // 反过来的坑是 `exportMdContent` —— 导出时思源会**自动补一个标题 h1**，
+        // 所以 cleanDocBody 必须把它剥掉（见 model/body.ts）。
+        const rows = await runSql<TaskRow>(listSql("all", { today: TODAY }));
+        const hit = toViewTasks(rows, TODAY).find((t) => t.id === taskDoc);
+        expect(hit?.title).toBe(`${PREFIX}-甲`);
+        expect(hit?.title).not.toBe("视图任务甲");
+    });
+
+    it("属性真的读得出来，且能进「今天」", { timeout: 20_000 }, async () => {
         await setAttrsAndWait(taskDoc, { "custom-due": TODAY, "custom-pri": "1" }, "custom-pri", "1");
         const rows = await runSql<TaskRow>(listSql("today", { today: TODAY }));
         const hit = rows.find((r) => r.id === taskDoc);
@@ -147,7 +167,7 @@ describe.skipIf(!reachable)("V-INT 文档模型：每条视图 SQL 都能被内�
         expect(hit!.pri).toBe("1");
     });
 
-    it("**完成状态走 custom-done**：写了就不在未完成里，去已完成里", async () => {
+    it("**完成状态走 custom-done**：写了就不在未完成里，去已完成里", { timeout: 20_000 }, async () => {
         await setAttrsAndWait(taskDoc, { "custom-done": `${TODAY}1200` }, "custom-done", `${TODAY}1200`);
 
         const open = await runSql<TaskRow>(listSql("all", { today: TODAY }));
@@ -160,7 +180,7 @@ describe.skipIf(!reachable)("V-INT 文档模型：每条视图 SQL 都能被内�
         await setAttrsAndWait(taskDoc, { "custom-done": "" }, "custom-done", "");
     });
 
-    it("「今天」包含已逾期（同类产品的默认行为）", async () => {
+    it("「今天」包含已逾期（同类产品的默认行为）", { timeout: 20_000 }, async () => {
         const b = docs[1];
         await setAttrsAndWait(b, { "custom-due": "20200101" }, "custom-due", "20200101");
         const rows = await runSql<TaskRow>(listSql("today", { today: TODAY }));

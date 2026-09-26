@@ -20,6 +20,7 @@ function deps(): HostDeps {
         afterCompleted: vi.fn(),
         createTask: vi.fn(),
         promoteToTask: vi.fn(),
+        forgetTask: vi.fn(),
         transportReady: () => true,
         toast: vi.fn(),
         errorToast: vi.fn(),

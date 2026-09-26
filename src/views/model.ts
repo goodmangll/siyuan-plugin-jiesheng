@@ -110,6 +110,26 @@ export function toViewTasks(
     return (rows ?? []).map((r) => toViewTask(r, today, r.box ? notebooks?.[r.box] : undefined));
 }
 
+/**
+ * 改期后的任务（本地先算出来，用于乐观更新）。
+ *
+ * 为什么要专门有这个函数：`day` / `isToday` / `overdue` 都是从 `due` **派生**的，
+ * 调用方如果只写 `{...t, due: newDay}`，那三个字段就还是旧的 ——
+ * 日历会按旧日子分格、四象限会按旧日期判紧急。
+ * 「谁派生、谁负责重算」就放在这里一处。
+ */
+export function withDue(task: ViewTask, due: string | null, today: string): ViewTask {
+    const d = (due ?? "").trim() || null;
+    const day = toDay(d);
+    return {
+        ...task,
+        due: d,
+        day,
+        overdue: day !== null && day < today,
+        isToday: day === today,
+    };
+}
+
 export interface TaskGroup {
     key: string;
     title: string;

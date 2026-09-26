@@ -48,21 +48,55 @@ export function cursorBlockId(activeEditor?: ProtyleLike | null): string | null 
 }
 
 /**
- * 从块元素向上找「所属的任务列表项」。
- *
- * 纯同步、纯 DOM —— 因为块标菜单（`click-blockicon`）是同步事件，
- * 菜单项必须在回调返回前加进去，不能先 await 再查库。
+ * 从块元素向上找「所属的任务列表项」（老模型的 `- [ ]`）。
  *
  * 用 `closest` 向上找，所以嵌套任务会命中**最近的那一层**，正是我们要的。
  */
 export const TASK_ITEM_SELECTOR = '[data-node-id][data-subtype="t"]';
 
-export function taskBlockIdFromElement(el: Element | null | undefined): string | null {
+/**
+ * 块标菜单点击时，从 DOM **同步**得到「点的是什么」。
+ *
+ * ## 为什么要有这个
+ *
+ * 真机上块标菜单里**根本没有「任务」这一项**。根因：原来只用
+ * `taskBlockIdFromElement`（只认 `[data-subtype="t"]`，即老模型的 `- [ ]`），
+ * 而模型已经改成「**任务 = 文档**」——它永远返回 null，菜单就一直不挂。
+ *
+ * 但也不能一上来就查库：`click-blockicon` 是**同步**事件，
+ * `menu.addItem` 必须在回调返回前调用。所以这里只做纯 DOM 的事：
+ *
+ * - `blockId`：最近的 `[data-node-id]`
+ * - `docId`：所属文档。思源把文档 id 放在 `.protyle` 的 `data-node-id` 上
+ *   （实测；文档块自己不是 `data-type="NodeDocument"` 的 wysiwyg 子元素）
+ * - `isTaskItem`：是不是 `- [ ]` 列表项（老模型遗留）
+ *
+ * 「这个文档是不是任务」由调用方拿同步的任务 id 索引去判（见 `plugin/taskIndex.ts`）。
+ */
+export interface BlockHit {
+    blockId: string | null;
+    docId: string | null;
+    isTaskItem: boolean;
+}
+
+export function blockHitFromElement(el: Element | null | undefined): BlockHit {
+    const empty: BlockHit = { blockId: null, docId: null, isTaskItem: false };
     if (!el || typeof el.closest !== "function") {
-        return null;
+        return empty;
     }
-    const li = el.closest(TASK_ITEM_SELECTOR) as HTMLElement | null;
-    return li?.dataset?.nodeId ?? null;
+    const nodeId = (n: Element | null): string | null =>
+        ((n as HTMLElement | null)?.dataset?.nodeId ?? null) || null;
+    return {
+        blockId: nodeId(el.closest("[data-node-id]")),
+        docId: nodeId(el.closest(".protyle")),
+        isTaskItem: !!el.closest(TASK_ITEM_SELECTOR),
+    };
+}
+
+/** 兼容旧用法：只要「所属的任务列表项」 */
+export function taskBlockIdFromElement(el: Element | null | undefined): string | null {
+    const hit = blockHitFromElement(el);
+    return hit.isTaskItem ? hit.blockId : null;
 }
 
 /**

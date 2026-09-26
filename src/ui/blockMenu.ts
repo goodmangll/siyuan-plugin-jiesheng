@@ -5,7 +5,8 @@
  *    事件回调返回前调用；否则菜单已经渲染完，后加的项不会出现。
  *    因此这里不读属性 —— `readAttrs` 推迟到**点击时**（见 `write`）。
  *
- * 判断「是不是任务块」也不在这里做：交给 `api/dom.taskBlockIdFromElement()`（同步、纯 DOM）。
+ * 判断「点的是什么、它是不是任务」也不在这里做：
+ * 交给 `api/dom.blockHitFromElement()`（同步、纯 DOM）+ 调用方的任务 id 索引。
  */
 
 import { ATTR } from "../model/attrs";
@@ -38,17 +39,43 @@ export interface BlockMenuDeps {
 const ICON = "iconTaskFlow";
 
 /**
- * 组装菜单项。`taskId` 为空则返回空数组（调用方据此决定不挂菜单）。
+ * 这次点的是「什么」。
+ *
+ * 判断在调用方（plugin）做：它手上有同步的任务 id 索引。
+ * 这里只按结论组装项集合 —— **纯函数、同步、不读属性、不做 I/O**。
+ */
+export interface BlockMenuTarget {
+    /** 要操作的对象：任务文档 id，或普通块 id */
+    id: string;
+    /** 这个 id 已经是一个任务文档 */
+    isTask: boolean;
+}
+
+/**
+ * 组装菜单项。`target` 为空则返回空数组（调用方据此决定不挂菜单）。
  * **同步返回**，不读属性、不做 I/O。
+ *
+ * ⚠️ 项集合**按点击对象分两种**，不能一套走天下 ——
+ *    以前的实现在任何情况下都出 11 项（含「转为任务」**和**「不再作为任务」），
+ *    对已经是任务的文档给「转为任务」是自相矛盾的。
  */
 export function buildBlockMenuItems(
-    taskId: string | null | undefined,
+    target: BlockMenuTarget | null | undefined,
     deps: BlockMenuDeps,
 ): MenuItemLike[] {
-    if (!taskId) {
+    if (!target?.id) {
         return [];
     }
-    const id = taskId;
+    const id = target.id;
+
+    // 已经是任务 → 只给「改这条任务」的动作；不是 → 只给「把它变成任务」
+    if (!target.isTask) {
+        return [{
+            icon: ICON,
+            label: "转为任务（建文档）",
+            click: run(() => deps.promoteToTask?.(id), deps),
+        }];
+    }
 
     const write = (make: (attrs: Attrs) => Patch | null) => async (): Promise<void> => {
         try {
@@ -90,11 +117,6 @@ export function buildBlockMenuItems(
                     deps.onError?.((e as Error).message || "打开面板失败");
                 }
             },
-        },
-        {
-            icon: ICON,
-            label: "转为任务（建文档）",
-            click: run(() => deps.promoteToTask?.(id), deps),
         },
         {
             icon: ICON,

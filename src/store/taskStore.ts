@@ -87,6 +87,14 @@ export interface TaskStore {
     mutate(id: string, after: ViewTask | null, run: () => Promise<unknown>): Promise<void>;
     /** 外部（内核推送）说数据变了 —— 防抖后刷新 */
     pokeKernelChange(): void;
+    /**
+     * 把未落定的改动叠到**任意一批行**上。
+     *
+     * 智能清单/看板/四象限走 `items()` 就够了，但日历用的是自己的
+     * `loadRange`（只取一个月），得让调用方把 pending 叠上去 ——
+     * 否则拖完日期，格子还显示在原地（真机踩到）。
+     */
+    applyPending(rows: ViewTask[]): ViewTask[];
 }
 
 export interface StoreStatus {
@@ -254,6 +262,29 @@ export function createTaskStore(deps: TaskStoreDeps): TaskStore {
         },
 
         items: () => deriveTasks(base, pending, view, deps.today),
+
+        applyPending(rows) {
+            if (pending.size === 0) {
+                return rows;
+            }
+            const out: ViewTask[] = [];
+            for (const r of rows) {
+                const p = pending.get(r.id);
+                if (!p) {
+                    out.push(r);
+                } else if (p.after) {
+                    out.push(p.after);
+                }
+                // p.after === null → 删掉了，丢掉
+            }
+            const seen = new Set(out.map((t) => t.id));
+            for (const [id, p] of pending) {
+                if (p.after && !seen.has(id)) {
+                    out.push(p.after); // 从范围外挪进来的也要出现
+                }
+            }
+            return out;
+        },
         counts: () => deriveCounts(baseCounts, pending, deps.today),
         status: () => status,
 

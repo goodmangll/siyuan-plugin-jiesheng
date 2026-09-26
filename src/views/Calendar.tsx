@@ -5,18 +5,20 @@
  * QueryView 里改个日期要回编辑器找到块、放上光标、再按快捷键。
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import type { ViewTask } from "./model";
-import { formatDue } from "./model";
+import { formatDue, withDue } from "./model";
 import { monthGrid, monthLabel, shiftMonth, weekdayHeaders } from "./calendar";
 import type { ViewHost } from "./host";
+import type { TaskStore } from "../store/taskStore";
 
 const CELL_TASK_LIMIT = 3;
 
-export function Calendar({ today, host, onChanged }: {
+export function Calendar({ today, host, store }: {
     today: string;
     host: ViewHost;
-    onChanged: () => void;
+    /** 写入走 store：先本地生效、再写库、落定后对账（见 store/taskStore.ts） */
+    store: TaskStore;
 }) {
     const [anchor, setAnchor] = useState(today);
     const [tasks, setTasks] = useState<ViewTask[]>([]);
@@ -36,9 +38,9 @@ export function Calendar({ today, host, onChanged }: {
         return { from: first, to: `${t.getFullYear()}${p(t.getMonth() + 1)}${p(t.getDate())}` };
     }, [grid]);
 
-    // 日历用的是**自己这个月**的数据（loadRange），和 TabApp 那份 tasks 不是一回事。
-    // 所以改完之后必须重载自己 —— 只调父组件的 onChanged 是刷不到这里的
-    // （真机踩到：拖完日期变了、格子还显示在原地）。
+    // 日历用的是**自己这个月**的数据（loadRange），和 TabApp 那份不是一回事。
+    // 所以两份都要处理：自己这份叠加 store 的未落定改动（applyPending），
+    // 改完也让 store 去对账（mutate 内部会）。
     const reload = useCallback(async () => {
         try {
             setTasks(await host.loadRange(range.from, range.to));
@@ -47,27 +49,40 @@ export function Calendar({ today, host, onChanged }: {
         }
     }, [host, range.from, range.to]);
 
-    useEffect(() => { void reload(); }, [reload]);
+    // ★ 跟着 store 重取自己这个月。
+    //   少了这句会有一个很隐蔽的回退：拖完日期 → 格子立刻换过去（applyPending）→
+    //   写入落定、store 撤掉 pending → 而自己这份 loadRange 数据从没重取过，
+    //   于是格子又跳回旧日子。只靠 applyPending 只能撑到落定那一刻。
+    const storeVersion = useSyncExternalStore(
+        (fn) => store.subscribe(fn),
+        () => store.version(),
+    );
+    useEffect(() => { void reload(); }, [reload, storeVersion]);
+
+    /** 叠加未落定的改动后再分格 —— 否则拖完格子还显示在原地 */
+    const shown = store.applyPending(tasks);
 
     const byDay = useMemo(() => {
         const m = new Map<string, ViewTask[]>();
-        for (const t of tasks) {
+        for (const t of shown) {
             if (!t.day) continue;
             const arr = m.get(t.day);
             arr ? arr.push(t) : m.set(t.day, [t]);
         }
         return m;
-    }, [tasks]);
+    }, [shown]);
 
     const drop = (day: string, fromTransfer?: string) => {
         const id = fromTransfer || dragId;
         setDragId(null);
         setOverDay(null);
         if (!id) return;
-        void host.setDue(id, day).then(async () => {
-            await reload();   // 先刷自己的月份
-            onChanged();      // 再让父组件刷侧边栏计数
-        });
+        const t = tasks.find((x) => x.id === id);
+        if (!t) return;
+        // ★ 乐观：格子立刻换到新日子，不等思源那约 2.5 秒的索引延迟。
+        //   `withDue` 会连 day / isToday / overdue 一起重算 —— 只写 due 的话
+        //   日历还按旧日子分格（真机踩过）。
+        void store.mutate(id, withDue(t, day, today), () => host.setDue(id, day));
     };
 
     const pickedTasks = picked ? (byDay.get(picked) ?? []) : [];
