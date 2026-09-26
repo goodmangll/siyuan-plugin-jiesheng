@@ -30,7 +30,7 @@ export interface BlockMenuDeps {
      *   要让一条随手记变成真任务，就得把它变成文档。
      */
     promoteToTask?(id: string): Promise<void>;
-    /** 取消任务标记（= 同类产品的「转为笔记」：不再当任务，但内容都留着） */
+    /** 取消任务标记：不再当任务，但内容都留着 */
     demoteFromTask?(id: string): Promise<void>;
     /** 出错时提示（可选） */
     onError?(message: string): void;

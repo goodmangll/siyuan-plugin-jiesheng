@@ -322,7 +322,7 @@ export function buildBlockMenuDeps(deps: HostDeps): BlockMenuDeps {
         // ★ 任务 = 文档 → 老模型的 - [ ] 块不再是任务。
         //   「转为任务」= 把这个块升格成一个任务文档（建文档 → 搬内容 → 删原块）。
         promoteToTask: (id: string) => deps.promoteToTask(id),
-        // 「不再作为任务」= 同类产品的「转为笔记」：去掉标记，内容全留着
+        // 「不再作为任务」：去掉任务标记，内容全留着（想改回来再加 custom-task 即可）
         demoteFromTask: async (id: string) => {
             await setAttrsAndWait(id, { [ATTR.task]: "" }, ATTR.task, "");
             deps.forgetTask(id); // 索引里去掉，否则菜单还会说它是任务

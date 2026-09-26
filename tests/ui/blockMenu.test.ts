@@ -52,7 +52,7 @@ describe("B1/B2 菜单项", () => {
         const items = buildBlockMenuItems({ id: "BLOCK", isTask: false }, deps);
         expect(items.map((i) => i.label)).toEqual(["转为任务（建文档）"]);
     });
-    it("「不再作为任务」= 同类产品的「转为笔记」：只去掉标记，内容不动", async () => {
+    it("「不再作为任务」：只去掉标记，内容不动", async () => {
         const { deps, calls } = makeDeps();
         const item = buildBlockMenuItems({ id: "TASK", isTask: true }, deps).find((i) => i.label === "不再作为任务");
         await item!.click();

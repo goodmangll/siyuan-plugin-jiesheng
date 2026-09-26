@@ -57,11 +57,11 @@ describe("M4 序列化", () => {
     });
 });
 
-describe("M5 与同类产品 iCal TRIGGER 互转", () => {
+describe("M5 与 iCal TRIGGER 互转", () => {
     it("-2d09:00 ⇄ -P1DT15H0M0S（相对 due 当天 00:00 的负偏移）", () => {
         expect(toICalTrigger("-2d09:00")).toBe("-P1DT15H");
         expect(fromICalTrigger("-P1DT15H")).toBe("-2d09:00");
-        expect(fromICalTrigger("-P1DT15H0M0S")).toBe("-2d09:00"); // 同类产品那种带零写法也认
+        expect(fromICalTrigger("-P1DT15H0M0S")).toBe("-2d09:00"); // 带零的写法也认
     });
     it("周偏移在序列化时被规范化为天（语义等价）", () => {
         expect(toICalTrigger("-1w09:00")).toBe("-P6DT15H");
@@ -71,12 +71,12 @@ describe("M5 与同类产品 iCal TRIGGER 互转", () => {
         expect(toICalTrigger("-5m")).toBe("-PT5M");
         expect(fromICalTrigger("-PT5M")).toBe("-5m");
     });
-    // 注意：同类产品自己会输出 `P0DT9H0M0S`（带 0D），本插件输出规范最简形式 `PT9H0M0S`。
+    // 注意：`P0DT9H0M0S`（带 0D）也要认，本插件输出规范最简形式 `PT9H0M0S`。
     // 两者是同一个时长，互相都能解析，只是字面不同 —— 这里不假装逐字对齐。
     it("当天 09:00 ⇄ PT9H0M0S（规范最简形式）", () => {
         expect(toICalTrigger("0d09:00")).toBe("PT9H");
         expect(fromICalTrigger("PT9H")).toBe("0d09:00");
-        expect(fromICalTrigger("P0DT9H0M0S")).toBe("0d09:00"); // 同类产品的形式也认
+        expect(fromICalTrigger("P0DT9H0M0S")).toBe("0d09:00"); // 带 0D 的形式也认
     });
     it("准点 ⇄ -PT0S", () => {
         expect(toICalTrigger("0")).toBe("-PT0S");
