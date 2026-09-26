@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-    attr, boardSql, calendarSql, countSql, countsSql, doneSql, doneTasksWhere, listSql, listsSql, openTasksWhere,
+    attr, boardSql, calendarSql, countSql, countsFromRow, countsSql, doneSql, doneTasksWhere, listSql, listsSql, listWithCountsSql, openTasksWhere,
     remindCandidatesSql, SELECT_COLS, smartListIds, smartListsOf, sqlForView, tagsSql, TASK_MARK } from "../../src/views/query";
 
 const TODAY = "20260925";
@@ -318,5 +318,41 @@ describe("countsSql 与 countSql 同源（不能各算各的）", () => {
             const where = single.slice(single.indexOf("where ") + 6).trim();
             expect(one).toContain(`where ${where})`);
         }
+    });
+});
+
+describe("listWithCountsSql：列表与数字必须同一份快照（偶发重复计的根因）", () => {
+    const sql = listWithCountsSql("done", "20260926");
+
+    it("是一条语句，不是列表 + 计数两条", () => {
+        expect(sql.trim().startsWith("select")).toBe(true);
+        expect(sql.split(";").filter((x) => x.trim())).toHaveLength(1);
+        expect(sql).toContain("left join");
+    });
+
+    it("★ 计数一律用 cnt_ 前缀 —— 裸用 id 会撞名（done 既是清单名也是列表列名）", () => {
+        // 列表列里有一个 done（= custom-done）。计数别名若也叫 done，
+        // 两列同名，SQLite 只留一个 → 数字或状态被悄悄吃掉。
+        expect(sql).toContain("as done"); // 列表列确实叫 done（这是前提）
+        for (const id of smartListIds()) {
+            expect(sql).toContain(`as "cnt_${id}"`);
+            expect(sql).not.toContain(`as "${id}"`); // 不许裸用
+        }
+    });
+
+    it("left join ... on 1=1：列表为空时仍会返回一行，计数照样拿得到", () => {
+        expect(sql).toContain("on 1=1");
+        expect(sql).toMatch(/left join\s*\(/);
+    });
+
+    it("看板走未完成的谓词，不按完成状态归属过滤", () => {
+        expect(listWithCountsSql("board", "20260926")).toContain("custom-done");
+    });
+
+    it("countsFromRow 只认 cnt_ 前缀，认不出就给 0（不抛）", () => {
+        expect(countsFromRow({ cnt_today: "3", cnt_all: 5 })).toEqual({
+            today: 3, tomorrow: 0, next7: 0, inbox: 0, all: 5, done: 0,
+        });
+        expect(countsFromRow({})).toEqual({ today: 0, tomorrow: 0, next7: 0, inbox: 0, all: 0, done: 0 });
     });
 });

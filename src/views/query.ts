@@ -221,6 +221,46 @@ export function countsSql(opts: SqlOptions): string {
     return `select ${parts.join(", ")}`;
 }
 
+/**
+ * 列表与 6 个计数**一条 SQL 拿全** —— 同一份快照。
+ *
+ * 为什么必须合起来：`load` 与 `counts` 原来是两条独立查询、`Promise.all` 并行发。
+ * 它们**会跨过索引提交那一刻**：计数已看到写入、列表还没有。真机抓到过：
+ *
+ * ```
+ * view=done items=1 counts={done:2} baseCounts={done:1} pending=[T1]
+ * ```
+ *
+ * 列表 1 行、侧栏却写 2 —— 因为 `pending` 覆盖层被正确保留（列表证明不了
+ * 改动已生效），而差额又加到了**已经含它**的基数上，重复计一次。
+ * 两条查询只隔几十毫秒，索引提交恰好落在中间的概率很低，所以是偶发。
+ *
+ * 这里用 `left join ... on 1=1` 把计数挂在列表行上：
+ * 列表为空时仍会返回一行（列表列全 NULL），计数照样拿得到。
+ * 计数列一律加 `cnt_` 前缀 —— `done` 和列表里的 `done` 会撞名。
+ */
+export function listWithCountsSql(view: string, today: string, limit?: number): string {
+    const n = limit ?? DEFAULT_LIMIT;
+    const id = view === "board" ? "all" : assertId(view);
+    const counts = smartListIds().map(
+        // 别名加引号：和 countsSql 一致，也防以后有人把前缀去掉时踩保留字
+        (k) => `(select count(*) from blocks b where ${whereFor(k, today)}) as "cnt_${k}"`,
+    ).join(", ");
+    const rows = view === "board"
+        ? `select ${SELECT_COLS} from blocks b where ${openTasksWhere()} ${orderBy()} limit ${n}`
+        : `select ${SELECT_COLS} from blocks b where ${whereFor(id, today)} ${orderBy()} limit ${n}`;
+    return `select t.*, c.* from (select ${counts}) c left join (${rows}) t on 1=1`;
+}
+
+/** 从 `listWithCountsSql` 的结果行里取出 6 个计数 */
+export function countsFromRow(row: Record<string, unknown>): Record<SmartListId, number> {
+    const out = {} as Record<SmartListId, number>;
+    for (const k of smartListIds()) {
+        out[k] = Number(row[`cnt_${k}`] ?? 0);
+    }
+    return out;
+}
+
 /** 看板：按清单分组（清单在映射层从笔记本名或 custom-list 得出） */
 export function boardSql(opts: SqlOptions): string {
     const limit = opts.limit ?? DEFAULT_LIMIT;

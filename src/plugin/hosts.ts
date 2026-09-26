@@ -24,7 +24,10 @@ import { patchList, patchPriority, patchRange } from "../ui/panelActions";
 import type { BlockMenuDeps } from "../ui/blockMenu";
 import type { TaskCommandDeps } from "../commands";
 import type { ViewHost, ViewId } from "../views/host";
-import { calendarSql, countsSql, listsSql, smartListIds, sqlForView, type SmartListId } from "../views/query";
+import {
+    calendarSql, countsFromRow, countsSql, listsSql, listWithCountsSql, smartListIds, sqlForView,
+    type SmartListId,
+} from "../views/query";
 import {
     createdTrendSql, doneTrendSql, fillSeries, listDistSql, priorityDistSql, recentDays,
 } from "../views/stats";
@@ -76,6 +79,18 @@ export function buildViewHost(deps: HostDeps): ViewHost {
             ]);
             // 清单默认取笔记本名，所以映射时必须把表带进去
             return toViewTasks(rows, today, notebooks);
+        },
+
+        loadWithCounts: async (view: ViewId, today: string) => {
+            // ★ 一条 SQL 把列表和 6 个数字一起取回 —— 同一份快照，不会互相错位
+            const rows = await runSql<TaskRow & Record<string, unknown>>(listWithCountsSql(view, today));
+            const notebooks = await deps.notebookMap();
+            // 列表为空时也会有一行（列表列全 NULL），所以计数永远拿得到
+            const real = rows.filter((r) => r.id);
+            return {
+                tasks: toViewTasks(real, today, notebooks),
+                counts: countsFromRow(rows[0] ?? {}),
+            };
         },
 
         counts: async (today: string) => {
