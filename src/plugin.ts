@@ -240,7 +240,7 @@ export default class TaskFlow extends Plugin {
      *
      * 正确的做法是**让读保持快**，把这 2.5 秒交给本地覆盖层去兜：
      *   - 读永远立即返回（可能旧）
-     *   - 视图渲染时叠上「本地已知、SQL 还没追上」的状态（见 views/query.applyLocalDone）
+     *   - 视图渲染时叠上「本地已知、SQL 还没追上」的状态（见 store/taskStore）
      *   - 写入落定后再刷新一次，落地时撤掉覆盖
      *
      * 覆盖层不只是「更快的乐观更新」—— 它是**正确性**的承担者：
